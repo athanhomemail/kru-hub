@@ -50,7 +50,7 @@ authRoutes.get('/me',authenticate,async(req,res)=>{
  res.json({user:req.user,schools});
 });
 authRoutes.post('/password',authenticate,async(req,res)=>{
- const password=text(req.body.password,200);if(password.length<12) fail(400,'รหัสผ่านใหม่ต้องมีอย่างน้อย 12 ตัวอักษร');
+ const password=text(req.body.password,200);if(password.length<6) fail(400,'รหัสผ่านใหม่ต้องมีอย่างน้อย 6 ตัวอักษร');
  const [[user]]=await pool.query('SELECT password_hash FROM users WHERE id=?',[req.user.id]);
  if(!await bcrypt.compare(text(req.body.current,200),user.password_hash)) fail(400,'รหัสผ่านเดิมไม่ถูกต้อง');
  const passwordHash=await bcrypt.hash(password,12);
