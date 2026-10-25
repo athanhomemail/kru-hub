@@ -1,3 +1,4 @@
+import {insertSlotBatch,setupFields} from './school-setup.js';
 import {saveSubjectGrades,validateSubjectGrade,curriculumItems,applyCurriculum} from './curriculum.js';
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
@@ -7,17 +8,17 @@ import { fail,id,text,transaction,audit } from './common.js';
 import { admin,staffAccess } from './auth.js';
 export const dataRoutes=Router({mergeParams:true});
 const entities={
- departments:['name'],grade_levels:['name','sort_order'],subjects:['code','name','department_id'],
+ departments:['name'],grade_levels:['name','sort_order','abbreviation'],subjects:['code','name','department_id'],
  staff:['code','display_name','department_id','is_teacher'],
  academic_years:['buddhist_year','starts_on','ends_on','status'],
  terms:['academic_year_id','term_number','starts_on','ends_on'],
- classrooms:['academic_year_id','grade_level_id','name','homeroom_teacher_id'],
+ classrooms:['academic_year_id','grade_level_id','name','homeroom_teacher_id','room_number'],
  teaching_slots:['term_id','weekday','period_number','starts_at','ends_at'],
  students:['code','display_name'],school_holidays:['holiday_date','name']
 };
 const optional=new Set(['department_id','homeroom_teacher_id']);
 function fields(entity,body){return entities[entity].map(k=>{
- const value=body[k];if(entity==='staff'&&k==='code')return value==null||String(value).trim()===''?null:text(value,40);
+ const value=body[k];if(['abbreviation','room_number'].includes(k))return value==null||String(value).trim()===''?null:text(value,20);if(entity==='staff'&&k==='code')return value==null||String(value).trim()===''?null:text(value,40);
  if(optional.has(k)&&(!value||value===''))return null;
  if(k==='sort_order')return Number(value||0);
  if(k==='is_teacher')return value===false||value==='0'?0:1;
@@ -29,7 +30,7 @@ function fields(entity,body){return entities[entity].map(k=>{
 });}
 export async function loadData(schoolId,c=pool){
  const data={};
- for(const entity of Object.keys(entities)) [data[entity]]=await c.query(`SELECT * FROM ${entity} WHERE school_id=? ORDER BY id`,[schoolId]);
+ for(const entity of Object.keys(entities)) [data[entity]]=await c.query(`SELECT * FROM ${entity} WHERE school_id=? ORDER BY ${entity==='grade_levels'?'sort_order,id':'id'}`,[schoolId]);
  for(const entity of ['teacher_subjects','classroom_slots','teaching_requirements','teacher_unavailability','grade_coordinators','enrollments','subject_grades','grade_curriculum']) [data[entity]]=await c.query(`SELECT * FROM ${entity} WHERE school_id=?`,[schoolId]);
  return data;
 }
@@ -37,7 +38,8 @@ dataRoutes.get('/data',async(req,res)=>{staffAccess(req);res.json({...await load
 dataRoutes.post('/data/:entity',async(req,res)=>{
  admin(req); const entity=req.params.entity;if(!entities[entity])fail(404,'ไม่พบประเภทข้อมูล');
  const record=await transaction(async c=>{
- const vals=fields(entity,req.body);
+ const body=await setupFields(c,req.school.id,entity,req.body,true);
+ const vals=fields(entity,body);
  if(entity==='teaching_slots'){
   const [conflicts]=await c.query('SELECT id FROM teaching_slots WHERE school_id=? AND term_id=? AND weekday=? AND starts_at<? AND ends_at>?',[req.school.id,req.body.term_id,req.body.weekday,req.body.ends_at,req.body.starts_at]);
   if(conflicts.length)fail(400,'เวลาเรียนคาบนี้ทับกับคาบอื่น');
@@ -56,7 +58,7 @@ dataRoutes.put('/data/:entity/:id',async(req,res)=>{
   const [entries]=await c.query(`SELECT id FROM timetable_entries WHERE school_id=? AND ${entity==='classrooms'?'classroom_id':entity==='teaching_slots'?'slot_id':'term_id'}=? LIMIT 1`,[req.school.id,recordId]);
   if(entries.length)fail(400,'ข้อมูลนี้มีตารางสอนแล้ว กรุณาสร้างรายการใหม่เพื่อรักษาตารางเดิม');
  }
- const body={...record,...req.body};
+ const body=await setupFields(c,req.school.id,entity,{...record,...req.body});
  if(entity==='teaching_slots'){
  const [conflicts]=await c.query('SELECT id FROM teaching_slots WHERE school_id=? AND term_id=? AND weekday=? AND starts_at<? AND ends_at>? AND id<>?',[req.school.id,body.term_id,body.weekday,body.ends_at,body.starts_at,recordId]);if(conflicts.length)fail(400,'เวลาเรียนทับกับคาบอื่น');
  }
@@ -166,16 +168,8 @@ dataRoutes.post('/rollover',async(req,res)=>{
 });
 
 dataRoutes.post('/week',async(req,res)=>{
- admin(req);const term=id(req.body.term_id);const periods=req.body.periods;if(!Array.isArray(periods)||!periods.length||periods.length>12)fail(400,'กำหนดคาบเรียน 1–12 คาบ');
- await transaction(async c=>{
- const [[t]]=await c.query('SELECT id FROM terms WHERE school_id=? AND id=? FOR UPDATE',[req.school.id,term]);if(!t)fail(404,'ไม่พบภาคเรียน');
- const [[existing]]=await c.query('SELECT id FROM teaching_slots WHERE school_id=? AND term_id=? LIMIT 1',[req.school.id,term]);if(existing)fail(400,'มีคาบเรียนแล้ว กรุณาปรับแต่ละคาบจากข้อมูลโรงเรียน');
- for(let i=0;i<periods.length;i++){
- const p=periods[i];if(!/^\d{2}:\d{2}$/.test(p.start)||!/^\d{2}:\d{2}$/.test(p.end)||p.end<=p.start)fail(400,'เวลาเริ่มต้องก่อนเวลาจบ');
- if(i>0&&p.start<periods[i-1].end)fail(400,'คาบเรียนทับซ้อนกัน');
- for(let day=1;day<=5;day++)await c.query('INSERT INTO teaching_slots(school_id,term_id,weekday,period_number,starts_at,ends_at) VALUES (?,?,?,?,?,?)',[req.school.id,term,day,i+1,p.start,p.end]);
- }await audit(c,req,'create','teaching_week',term);
- });res.json({ok:true});
+ admin(req);const term=id(req.body.term_id);
+ const result=await transaction(async c=>{const result=await insertSlotBatch(c,req.school.id,term,req.body);await audit(c,req,'create','teaching_week',term,result);return result;});res.json(result);
 });
 dataRoutes.get('/portal',async(req,res)=>{
  if(!['student','guardian'].includes(req.member?.role))fail(403,'พื้นที่นี้สำหรับนักเรียนและผู้ปกครอง');
