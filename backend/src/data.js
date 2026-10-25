@@ -16,7 +16,8 @@ const entities={
 };
 const optional=new Set(['department_id','homeroom_teacher_id']);
 function fields(entity,body){return entities[entity].map(k=>{
- const value=body[k];if(optional.has(k)&&(!value||value===''))return null;
+ const value=body[k];if(entity==='staff'&&k==='code')return value==null||String(value).trim()===''?null:text(value,40);
+ if(optional.has(k)&&(!value||value===''))return null;
  if(k==='sort_order')return Number(value||0);
  if(k==='is_teacher')return value===false||value==='0'?0:1;
  if(k==='status'){if(!['active','planning','archived'].includes(value))fail(400,'สถานะไม่ถูกต้อง');return value;}

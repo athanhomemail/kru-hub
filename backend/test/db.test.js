@@ -11,6 +11,13 @@ test('school boundaries, teacher collisions and manual locks', { skip: process.e
   try {
     const a = await insert('INSERT INTO schools (code,name) VALUES (?,?)', [`a-${tag}`, 'โรงเรียนทดสอบ ก']);
     const b = await insert('INSERT INTO schools (code,name) VALUES (?,?)', [`b-${tag}`, 'โรงเรียนทดสอบ ข']);
+    // Optional codes must support multiple unnamed codes, while explicit codes stay unique.
+    const withoutCode = await insert('INSERT INTO staff (school_id,display_name) VALUES (?,?)',[a,'ครูชื่อซ้ำ']);
+    const alsoWithoutCode = await insert('INSERT INTO staff (school_id,code,display_name) VALUES (?,NULL,?)',[a,'ครูชื่อซ้ำ']);
+    assert.notEqual(withoutCode,alsoWithoutCode);
+    await c.query('UPDATE staff SET code=? WHERE id=?',['STAFF-1',withoutCode]);
+    await assert.rejects(c.query('UPDATE staff SET code=? WHERE id=?',['STAFF-1',alsoWithoutCode]),{code:'ER_DUP_ENTRY'});
+    await c.query('UPDATE staff SET code=NULL WHERE id=?',[withoutCode]);
     const dept = await insert('INSERT INTO departments (school_id,name) VALUES (?,?)', [b, 'วิทยาศาสตร์']);
     await assert.rejects(c.query('INSERT INTO staff (school_id,department_id,code,display_name) VALUES (?,?,?,?)', [a,dept,tag,'ครู']), { code: 'ER_NO_REFERENCED_ROW_2' });
     const year = await insert("INSERT INTO academic_years (school_id,buddhist_year,starts_on,ends_on) VALUES (?,2569,'2026-05-01','2027-04-30')", [a]);
