@@ -1,3 +1,4 @@
+import {validateSubjectGrade} from './curriculum.js';
 import { Router } from 'express';
 import multer from 'multer';
 import QRCode from 'qrcode';
@@ -29,6 +30,7 @@ documentRoutes.post('/documents',(req,_res,next)=>{try{staffAccess(req);next();}
  if(!req.user.is_super_admin&&req.member?.role!=='school_admin'&&Number(req.member?.staff_id)!==teacher)fail(403,'อัปโหลดได้เฉพาะแผนการสอนของตนเอง');
  if(!/^\d{4}-\d{2}-\d{2}$/.test(req.body.lesson_date))fail(400,'เลือกวันที่แผนการสอน');
  const recordId=await transaction(async c=>{
+ await validateSubjectGrade(c,req.school.id,id(req.body.subject_id),id(req.body.grade_level_id));
  const [r]=await c.query('INSERT INTO lesson_plans(school_id,staff_id,subject_id,grade_level_id,term_id,title,lesson_date,file_key,original_name,mime_type,size_bytes) VALUES (?,?,?,?,?,?,?,?,?,?,?)',[req.school.id,teacher,id(req.body.subject_id),id(req.body.grade_level_id),id(req.body.term_id),text(req.body.title),req.body.lesson_date,req.file.filename,text(req.file.originalname),req.file.mimetype,req.file.size]);
  if(previewText!==null)await c.query('INSERT INTO document_previews(plan_id,preview_text) VALUES (?,?)',[r.insertId,previewText]);
  await audit(c,req,'upload','lesson_plan',r.insertId);return r.insertId;

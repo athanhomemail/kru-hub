@@ -30,6 +30,8 @@ test('live account, tenant, manual/Auto, publish, export and document-sharing wo
   const version=await request(`${url}/timetables`,{term_id:term,empty:true},'POST');assert.equal(version.status,201);versionId=version.data.id;
   let state=(await request(`${url}/timetables/${versionId}`)).data;
   const req=state.requirements[0],slot=state.slots[0];
+  // A requirement referenced by prior schedules must not be silently rewritten.
+  assert.equal((await request(`${url}/requirements/${req.id}`,{teacher_id:req.teacher_id,periods_per_week:req.periods_per_week,daily_limit:req.daily_limit},'PUT')).status,400);
   const manual=await request(`${url}/timetables/${versionId}/placement`,{revision:state.version.revision,requirement_id:req.id,slot_id:slot.id},'POST');assert.equal(manual.status,200);
   assert.equal((await request(`${url}/timetables/${versionId}/placement`,{revision:0,requirement_id:req.id,slot_id:slot.id},'POST')).status,409);
   state=(await request(`${url}/timetables/${versionId}`)).data;
@@ -62,6 +64,8 @@ test('live account, tenant, manual/Auto, publish, export and document-sharing wo
   assert.equal((await request(`${url}/data`,undefined,'GET',staffCookie)).status,403);
   const password=await request('/auth/password',{current:account.data.password,password:`Strong-password-${tag}`},'POST',staffCookie);assert.equal(password.status,200);staffCookie=password.cookie;
   assert.equal((await request(`${url}/data`,undefined,'GET',staffCookie)).status,200);
+  assert.equal((await request(`${url}/grade-curriculum`,{term_id:term,grade_level_id:data.grade_levels[0].id,items:[]},'PUT',staffCookie)).status,403);
+  assert.equal((await request(`${url}/grade-curriculum/apply`,{term_id:term,grade_level_id:data.grade_levels[0].id,assignments:[]},'POST',staffCookie)).status,403);
   assert.equal((await request(`${url}/data/departments`,{name:'ไม่มีสิทธิ์'},'POST',staffCookie)).status,403);
   const form=new FormData();form.set('staff_id',data.staff[0].id);form.set('subject_id',data.subjects[0].id);form.set('grade_level_id',data.grade_levels[0].id);form.set('term_id',term);form.set('title','เอกสารทดสอบ workflow');form.set('lesson_date','2026-10-12');
   const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jh1EAAAAASUVORK5CYII=','base64');form.set('file',new Blob([png],{type:'image/png'}),'workflow.png');

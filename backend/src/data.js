@@ -1,3 +1,4 @@
+import {saveSubjectGrades,validateSubjectGrade,curriculumItems,applyCurriculum} from './curriculum.js';
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { randomBytes } from 'node:crypto';
@@ -29,7 +30,7 @@ function fields(entity,body){return entities[entity].map(k=>{
 export async function loadData(schoolId,c=pool){
  const data={};
  for(const entity of Object.keys(entities)) [data[entity]]=await c.query(`SELECT * FROM ${entity} WHERE school_id=? ORDER BY id`,[schoolId]);
- for(const entity of ['teacher_subjects','classroom_slots','teaching_requirements','teacher_unavailability','grade_coordinators','enrollments']) [data[entity]]=await c.query(`SELECT * FROM ${entity} WHERE school_id=?`,[schoolId]);
+ for(const entity of ['teacher_subjects','classroom_slots','teaching_requirements','teacher_unavailability','grade_coordinators','enrollments','subject_grades','grade_curriculum']) [data[entity]]=await c.query(`SELECT * FROM ${entity} WHERE school_id=?`,[schoolId]);
  return data;
 }
 dataRoutes.get('/data',async(req,res)=>{staffAccess(req);res.json({...await loadData(req.school.id),member:req.member});});
@@ -42,6 +43,7 @@ dataRoutes.post('/data/:entity',async(req,res)=>{
   if(conflicts.length)fail(400,'เวลาเรียนคาบนี้ทับกับคาบอื่น');
  }
  const [r]=await c.query(`INSERT INTO ${entity}(school_id,${entities[entity].join(',')}) VALUES (${Array(vals.length+1).fill('?').join(',')})`,[req.school.id,...vals]);
+ if(entity==='subjects')await saveSubjectGrades(c,req.school.id,r.insertId,req.body.grade_level_ids||[]);
  await audit(c,req,'create',entity,r.insertId);
  return r.insertId;
  });res.status(201).json({id:record});
@@ -58,7 +60,7 @@ dataRoutes.put('/data/:entity/:id',async(req,res)=>{
  if(entity==='teaching_slots'){
  const [conflicts]=await c.query('SELECT id FROM teaching_slots WHERE school_id=? AND term_id=? AND weekday=? AND starts_at<? AND ends_at>? AND id<>?',[req.school.id,body.term_id,body.weekday,body.ends_at,body.starts_at,recordId]);if(conflicts.length)fail(400,'เวลาเรียนทับกับคาบอื่น');
  }
- await c.query(`UPDATE ${entity} SET ${entities[entity].map(k=>`${k}=?`).join(',')} WHERE id=? AND school_id=?`,[...fields(entity,body),recordId,req.school.id]);await audit(c,req,'update',entity,recordId);
+ await c.query(`UPDATE ${entity} SET ${entities[entity].map(k=>`${k}=?`).join(',')} WHERE id=? AND school_id=?`,[...fields(entity,body),recordId,req.school.id]);if(entity==='subjects'&&req.body.grade_level_ids!==undefined)await saveSubjectGrades(c,req.school.id,recordId,req.body.grade_level_ids);await audit(c,req,'update',entity,recordId);
  });res.json({ok:true});
 });
 dataRoutes.delete('/data/:entity/:id',async(req,res)=>{
@@ -78,7 +80,7 @@ dataRoutes.put('/classrooms/:id/slots',async(req,res)=>{
  admin(req);const room=id(req.params.id),term=id(req.body.term_id);
  await transaction(async c=>{
  await c.query('SELECT id FROM terms WHERE school_id=? AND id=? FOR UPDATE',[req.school.id,term]);
- const [[r]]=await c.query('SELECT c.id FROM classrooms c JOIN terms t ON t.school_id=c.school_id AND t.academic_year_id=c.academic_year_id WHERE c.school_id=? AND c.id=? AND t.id=?',[req.school.id,room,term]);if(!r)fail(400,'ห้องและภาคเรียนต้องอยู่ในปีการศึกษาเดียวกัน');
+ const [[r]]=await c.query('SELECT c.id,c.grade_level_id FROM classrooms c JOIN terms t ON t.school_id=c.school_id AND t.academic_year_id=c.academic_year_id WHERE c.school_id=? AND c.id=? AND t.id=?',[req.school.id,room,term]);if(!r)fail(400,'ห้องและภาคเรียนต้องอยู่ในปีการศึกษาเดียวกัน');
  const wanted=(req.body.slots||[]).map(id);const [current]=await c.query('SELECT slot_id FROM classroom_slots WHERE school_id=? AND term_id=? AND classroom_id=?',[req.school.id,term,room]);
  for(const row of current)if(!wanted.includes(Number(row.slot_id)))await c.query('DELETE FROM classroom_slots WHERE school_id=? AND term_id=? AND classroom_id=? AND slot_id=?',[req.school.id,term,room,row.slot_id]);
  for(const slot of wanted)if(!current.some(r=>Number(r.slot_id)===slot))await c.query('INSERT INTO classroom_slots VALUES (?,?,?,?)',[req.school.id,term,room,slot]);
@@ -96,7 +98,8 @@ dataRoutes.post('/requirements',async(req,res)=>{
  await canCoordinate(req,term,[room]);
  const requirement=await transaction(async c=>{
  await c.query('SELECT id FROM terms WHERE school_id=? AND id=? FOR UPDATE',[req.school.id,term]);
- const [[r]]=await c.query('SELECT c.id FROM classrooms c JOIN terms t ON t.school_id=c.school_id AND t.academic_year_id=c.academic_year_id WHERE c.school_id=? AND c.id=? AND t.id=?',[req.school.id,room,term]);if(!r)fail(400,'ห้องและภาคเรียนคนละปีการศึกษา');
+ const [[r]]=await c.query('SELECT c.id,c.grade_level_id FROM classrooms c JOIN terms t ON t.school_id=c.school_id AND t.academic_year_id=c.academic_year_id WHERE c.school_id=? AND c.id=? AND t.id=?',[req.school.id,room,term]);if(!r)fail(400,'ห้องและภาคเรียนคนละปีการศึกษา');
+ await validateSubjectGrade(c,req.school.id,id(req.body.subject_id),r.grade_level_id);
  const [[teacher]]=await c.query('SELECT id FROM staff WHERE school_id=? AND id=? AND is_teacher=TRUE AND active=TRUE',[req.school.id,id(req.body.teacher_id)]);if(!teacher)fail(400,'ผู้สอนต้องเป็นครูที่เปิดใช้งาน');
  const [result]=await c.query('INSERT INTO teaching_requirements(school_id,term_id,classroom_id,subject_id,teacher_id,periods_per_week,daily_limit) VALUES (?,?,?,?,?,?,?)',[req.school.id,term,room,id(req.body.subject_id),id(req.body.teacher_id),id(req.body.periods_per_week),id(req.body.daily_limit||1)]);
  await audit(c,req,'create','teaching_requirements',result.insertId);return result.insertId;
@@ -186,4 +189,32 @@ dataRoutes.get('/portal',async(req,res)=>{
 dataRoutes.post('/accounts/:id/reset',async(req,res)=>{
  admin(req);const password=randomBytes(10).toString('hex');const passwordHash=await bcrypt.hash(password,12);
  const username=await transaction(async c=>{const [[m]]=await c.query('SELECT m.*,u.username FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.school_id=? AND m.id=? FOR UPDATE',[req.school.id,id(req.params.id)]);if(!m)fail(404,'ไม่พบบัญชี');if(m.role==='school_admin'&&!req.user.is_super_admin)fail(403,'เฉพาะเจ้าของระบบรีเซ็ตรหัสผู้ดูแลโรงเรียน');if(Number(m.user_id)===Number(req.user.id))fail(400,'เปลี่ยนรหัสบัญชีตนเองได้ที่บัญชีของฉัน');await c.query('UPDATE users SET password_hash=?,must_change_password=TRUE WHERE id=?',[passwordHash,m.user_id]);await c.query('DELETE FROM sessions WHERE user_id=?',[m.user_id]);await audit(c,req,'reset_password','membership',m.id);return m.username;});res.json({username,password});
+});
+
+dataRoutes.put('/grade-curriculum',async(req,res)=>{
+ admin(req);const term=id(req.body.term_id),grade=id(req.body.grade_level_id),items=curriculumItems(req.body.items);
+ await transaction(async c=>{
+ const [[t]]=await c.query('SELECT id FROM terms WHERE school_id=? AND id=? FOR UPDATE',[req.school.id,term]);if(!t)fail(400,'ไม่พบภาคเรียน');
+ const [[g]]=await c.query('SELECT id FROM grade_levels WHERE school_id=? AND id=?',[req.school.id,grade]);if(!g)fail(400,'ไม่พบระดับชั้น');
+ for(const item of items)await validateSubjectGrade(c,req.school.id,item.subject_id,grade);
+ await c.query('DELETE FROM grade_curriculum WHERE school_id=? AND term_id=? AND grade_level_id=?',[req.school.id,term,grade]);
+ for(const item of items)await c.query('INSERT INTO grade_curriculum VALUES (?,?,?,?,?,?)',[req.school.id,term,grade,item.subject_id,item.periods_per_week,item.daily_limit]);
+ await audit(c,req,'update','grade_curriculum',grade,{term});
+ });res.json({ok:true});
+});
+dataRoutes.post('/grade-curriculum/apply',async(req,res)=>{
+ admin(req);const term=id(req.body.term_id),grade=id(req.body.grade_level_id);
+ const result=await transaction(async c=>{const [[t]]=await c.query('SELECT id FROM terms WHERE school_id=? AND id=? FOR UPDATE',[req.school.id,term]);if(!t)fail(400,'ไม่พบภาคเรียน');return applyCurriculum(c,req,term,grade,req.body.assignments);});res.json(result);
+});
+
+dataRoutes.put('/requirements/:id',async(req,res)=>{
+ const recordId=id(req.params.id);const [[record]]=await pool.query('SELECT * FROM teaching_requirements WHERE school_id=? AND id=?',[req.school.id,recordId]);if(!record)fail(404,'ไม่พบวิชา');
+ await canCoordinate(req,record.term_id,[record.classroom_id]);
+ const values=curriculumItems([{subject_id:record.subject_id,periods_per_week:req.body.periods_per_week,daily_limit:req.body.daily_limit}])[0];
+ await transaction(async c=>{
+ await c.query('SELECT id FROM terms WHERE school_id=? AND id=? FOR UPDATE',[req.school.id,record.term_id]);
+ const [entries]=await c.query('SELECT id FROM timetable_entries WHERE school_id=? AND requirement_id=? LIMIT 1',[req.school.id,recordId]);if(entries.length)fail(400,'วิชานี้มีคาบในตารางแล้ว ต้องรักษาข้อมูลตารางและประวัติเดิม');
+ const teacher=id(req.body.teacher_id);const [[allowed]]=await c.query('SELECT s.id FROM staff s JOIN teacher_subjects ts ON ts.school_id=s.school_id AND ts.teacher_id=s.id WHERE s.school_id=? AND s.id=? AND s.active=TRUE AND s.is_teacher=TRUE AND ts.subject_id=?',[req.school.id,teacher,record.subject_id]);if(!allowed)fail(400,'ครูไม่ได้รับมอบหมายให้สอนวิชานี้');
+ await c.query('UPDATE teaching_requirements SET teacher_id=?,periods_per_week=?,daily_limit=? WHERE school_id=? AND id=?',[teacher,values.periods_per_week,values.daily_limit,req.school.id,recordId]);await audit(c,req,'update','teaching_requirements',recordId);
+ });res.json({ok:true});
 });
