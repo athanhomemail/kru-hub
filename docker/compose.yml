@@ -1,0 +1,22 @@
+name: docker
+services:
+  mysql-twiniiz:
+    image: mysql:8.4
+    container_name: mysql-twiniiz
+    restart: unless-stopped
+    ports: ["127.0.0.1:${MYSQL_PORT:-3309}:3306"]
+    environment:
+      MYSQL_DATABASE: kruhub
+      MYSQL_USER: kruhub
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Run init-env first}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Run init-env first}
+      TZ: Asia/Bangkok
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci", "--default-time-zone=+00:00"]
+    volumes: ["twiniiz-data:/var/lib/mysql"]
+    healthcheck:
+      test: [CMD, mysqladmin, ping, -h, localhost]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+volumes:
+  twiniiz-data:

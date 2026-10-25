@@ -1,0 +1,18 @@
+{
+  "name": "kruhub",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "dev:api": "npm run dev --workspace backend",
+    "dev:web": "npm run dev --workspace frontend",
+    "build": "npm run build --workspace frontend",
+    "test": "npm run test --workspace backend",
+    "migrate": "npm run migrate --workspace backend",
+    "bootstrap": "npm run bootstrap --workspace backend",
+    "dev": "node scripts/dev.mjs",
+    "demo": "npm run demo --workspace backend"
+  }
+}

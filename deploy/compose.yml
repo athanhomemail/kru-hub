@@ -1,0 +1,73 @@
+name: kruhub
+services:
+  db:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: kruhub
+      MYSQL_USER: kruhub
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Run init-env first}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Run init-env first}
+      TZ: Asia/Bangkok
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci", "--default-time-zone=+00:00"]
+    volumes: ["mysql-data:/var/lib/mysql"]
+    networks: [database]
+    healthcheck:
+      test: [CMD, mysqladmin, ping, -h, localhost]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    logging: &logging
+      driver: json-file
+      options: {max-size: 10m, max-file: '3'}
+  api:
+    build: {context: .., dockerfile: backend/Dockerfile}
+    restart: unless-stopped
+    init: true
+    environment:
+      NODE_ENV: production
+      API_HOST: 0.0.0.0
+      PORT: 4001
+      TRUST_PROXY_HOPS: 2
+      FRONTEND_URL: ${FRONTEND_URL:?Set the real HTTPS domain}
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_NAME: kruhub
+      DB_USER: kruhub
+      DB_PASSWORD: ${MYSQL_PASSWORD:?Run init-env first}
+      SUPER_ADMIN_USERNAME: ${SUPER_ADMIN_USERNAME:-owner}
+      SUPER_ADMIN_INITIAL_PASSWORD: ${SUPER_ADMIN_INITIAL_PASSWORD:?Run init-env first}
+      TZ: Asia/Bangkok
+      UPLOAD_DIR: /app/uploads
+      ENABLE_DEMO_LOGIN: "false"
+    volumes: ["uploads:/app/uploads"]
+    networks: [application, database]
+    depends_on:
+      db: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:4001/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    logging: *logging
+  web:
+    build: {context: .., dockerfile: frontend/Dockerfile}
+    restart: unless-stopped
+    ports: ["127.0.0.1:${WEB_PORT:-8082}:80"]
+    networks: [application]
+    depends_on:
+      api: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, wget, -q, --spider, http://127.0.0.1/]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    logging: *logging
+networks:
+  application:
+  database:
+    internal: true
+volumes:
+  mysql-data:
+  uploads:

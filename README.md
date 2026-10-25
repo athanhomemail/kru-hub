@@ -1,0 +1,81 @@
+# Kru-Hub
+
+พื้นที่ทำงานของคุณครูหลายโรงเรียน ตาม [Spec Kru-Hub.txt](Spec%20Kru-Hub.txt)
+
+## ใช้งานได้แล้ว
+
+- UI ใหม่: หน้าเริ่มต้นและ dashboard, เมนูหลัก 6 หมวดด้านบนและทางลัดงาน, ข้อมูลโรงเรียนแบ่งเป็นหมวดชัดเจน, Light/Dark, animation, รองรับมือถือและ reduced motion
+- บัญชี: login/logout, session ใน cookie, เปลี่ยนรหัสครั้งแรก, สร้าง/ปิด/เปิด/รีเซ็ตบัญชีตามบทบาท
+- ข้อมูลโรงเรียน: ปีการศึกษา ภาคเรียน หมวดวิชา ครู/บุคลากร วิชาที่ครูสอนได้ ชั้นปี ห้องเรียน ครูประจำชั้น ผู้จัดตาราง เวลาเรียน วันหยุด นักเรียน และการลงทะเบียน
+- ตารางเรียน/สอน: ดูตามห้องหรือครู โดยแถวเป็นวันและคอลัมน์เป็นคาบ, แยกหน้ากำหนดวิชาและครู, ลง Manual และล็อก, ลงวิชาเดียวกันหลายห้องพร้อมกัน, ย้าย/สลับ, Auto ทั้งชั้น, ล้างเฉพาะ Auto, ตรวจครูชนและเวลาที่ไม่ว่าง, แสดงวิชาที่เหลือ, ร่าง/เผยแพร่/ประวัติ, export CSV
+- แผนการสอน: อัปโหลด PDF, Word .docx, PNG/JPEG, ปฏิทิน, กรองหมวด/ชั้น/ครู, ดูสถานะเอกสารของครู, preview/download ภายในโรงเรียน, QR ภายนอกอ่านอย่างเดียว พร้อมหมดอายุ/เพิกถอน
+- นักเรียน/ผู้ปกครอง: บัญชีผูกกับปีการศึกษา ดูตารางเผยแพร่ของตนเอง/บุตรหลาน สิ้นสุดปีปิดสิทธิ์เดิมโดยเก็บประวัติ
+- คลังสื่อ: หน้าสตูดิโอ, catalog/filter, modal สำหรับไฟล์เกมในอนาคต ยังไม่มีเกม ตามลำดับงานใน spec
+- Deploy: โครงเหมือน keelek พร้อม migration และ backup ฐานข้อมูล+ไฟล์เอกสาร
+
+รายละเอียดสิทธิ์และข้อจำกัดอยู่ใน [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+
+## Local
+
+ใช้ Node.js 24+ และ Docker Compose; frontend/backend รันบนเครื่อง MySQL รันใน Docker เท่านั้น
+
+```sh
+npm ci
+sh deploy/scripts/init-env.sh local
+docker compose --env-file docker/.env -f docker/compose.yml up -d --wait mysql-twiniiz
+```
+
+ถ้ามี docker/.env แล้ว ไม่ต้องรัน init-env ซ้ำ คัดลอก backend/.env.example เป็น backend/.env ตั้ง DB_PASSWORD ให้ตรง docker/.env และตั้ง SUPER_ADMIN_INITIAL_PASSWORD สุ่มอย่างน้อย 16 ตัวอักษร
+
+```sh
+npm run migrate
+npm run bootstrap
+npm run dev
+```
+
+คำสั่ง `npm run dev` เปิด web/API พร้อมกัน เปิด http://127.0.0.1:5174 เว็บใช้พอร์ต 5174 แบบ strict (ไม่ย้ายพอร์ตเอง) API อยู่ localhost:4001 และ MySQL localhost:3309
+
+เจ้าของระบบใช้ชื่อจาก SUPER_ADMIN_USERNAME และรหัสจาก backend/.env ต้องเปลี่ยนรหัสเมื่อเข้าสู่ระบบครั้งแรก เก็บไฟล์นี้เป็นความลับ
+
+### โรงเรียนตัวอย่างบน local
+
+ตั้ง ENABLE_DEMO_LOGIN=true ใน backend/.env แล้ว:
+
+```sh
+npm run demo
+npm run dev
+```
+
+หน้าเริ่มต้นจะแสดงปุ่ม “ลองโรงเรียนตัวอย่าง” สำหรับข้อมูลสมมติ 3 ห้อง 8 ครู 5 วิชา ตัวเลือกนี้ไม่ทำงานเมื่อ NODE_ENV=production แม้ตั้งค่า true และ deploy ปิดตัวเลือกนี้เสมอ ห้ามเปิด API local ต่อสาธารณะ
+
+Local ใช้ Compose project `docker` ร่วมกับ mysql-kuayrai แต่ไฟล์นี้ประกาศเฉพาะ mysql-twiniiz จึงอาจมีคำเตือน orphan ของ mysql-kuayrai อย่าใช้ --remove-orphans, compose down หรือ down -v กับ project นี้ หยุดเฉพาะ service:
+
+```sh
+docker compose --env-file docker/.env -f docker/compose.yml stop mysql-twiniiz
+```
+
+## ตรวจสอบ
+
+```sh
+npm test
+npm run build
+```
+
+เมื่อ API และโรงเรียนตัวอย่างเปิดอยู่ ตรวจ integration tests:
+
+```sh
+cd backend
+RUN_DB_TESTS=1 RUN_API_TESTS=1 node --env-file=.env --test
+```
+
+DB tests rollback fixture; API tests ใช้โรงเรียนตัวอย่าง สร้าง/เผยแพร่ตารางใหม่ และล้างบัญชี/เอกสารทดสอบหลังจบ ห้ามรันชุดนี้กับข้อมูลใช้งานจริง
+
+## VPS
+
+อ่าน [DEPLOY_GUIDE.md](DEPLOY_GUIDE.md) repo ใช้ `https://github.com/athanhomemail/kru-hub.git` branch `main` และโดเมน `kruhub.twiniiz.com` ตรวจ VPS และพอร์ตว่างก่อน deploy:
+
+```sh
+sh deploy/scripts/update.sh
+```
+
+การทดสอบในโครงการครอบคลุม local และ Docker build ยังไม่ได้ขึ้น VPS จริงหรือทำ restore drill บน VPS
