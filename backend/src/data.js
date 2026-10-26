@@ -103,7 +103,9 @@ dataRoutes.post('/requirements',async(req,res)=>{
  const [[r]]=await c.query('SELECT c.id,c.grade_level_id FROM classrooms c JOIN terms t ON t.school_id=c.school_id AND t.academic_year_id=c.academic_year_id WHERE c.school_id=? AND c.id=? AND t.id=?',[req.school.id,room,term]);if(!r)fail(400,'ห้องและภาคเรียนคนละปีการศึกษา');
  await validateSubjectGrade(c,req.school.id,id(req.body.subject_id),r.grade_level_id);
  const [[teacher]]=await c.query('SELECT id FROM staff WHERE school_id=? AND id=? AND is_teacher=TRUE AND active=TRUE',[req.school.id,id(req.body.teacher_id)]);if(!teacher)fail(400,'ผู้สอนต้องเป็นครูที่เปิดใช้งาน');
- const [result]=await c.query('INSERT INTO teaching_requirements(school_id,term_id,classroom_id,subject_id,teacher_id,periods_per_week,daily_limit) VALUES (?,?,?,?,?,?,?)',[req.school.id,term,room,id(req.body.subject_id),id(req.body.teacher_id),id(req.body.periods_per_week),id(req.body.daily_limit||1)]);
+ const values=curriculumItems([{subject_id:req.body.subject_id,periods_per_week:req.body.periods_per_week,daily_limit:req.body.daily_limit||1}])[0];
+ const [duplicate]=await c.query('SELECT id FROM teaching_requirements WHERE school_id=? AND term_id=? AND classroom_id=? AND subject_id=? AND teacher_id=?',[req.school.id,term,room,values.subject_id,teacher.id]);if(duplicate.length)fail(400,'ครูคนนี้มีวิชานี้ในห้องแล้ว กรุณาแก้จำนวนคาบในรายการเดิม');
+ const [result]=await c.query('INSERT INTO teaching_requirements(school_id,term_id,classroom_id,subject_id,teacher_id,periods_per_week,daily_limit) VALUES (?,?,?,?,?,?,?)',[req.school.id,term,room,values.subject_id,teacher.id,values.periods_per_week,values.daily_limit]);
  await audit(c,req,'create','teaching_requirements',result.insertId);return result.insertId;
  });res.status(201).json({id:requirement});
 });

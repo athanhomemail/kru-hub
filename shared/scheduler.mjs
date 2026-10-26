@@ -12,7 +12,10 @@ export function placementError(state, entries, requirement, slot, free = false) 
  }
  const own=entries.filter(e=>same(e.requirement_id,requirement.id));
  if(own.length>=requirement.periods_per_week) return 'วิชานี้ครบจำนวนคาบต่อสัปดาห์แล้ว';
- if(!free && own.filter(e=>same(state.slots.find(s=>same(s.id,e.slot_id))?.weekday,slot.weekday)).length>=requirement.daily_limit) return 'วิชานี้ลงครบจำนวนคาบต่อวันแล้ว';
+ const subjectReqs=state.requirements.filter(r=>same(r.classroom_id,requirement.classroom_id)&&(same(r.id,requirement.id)||same(r.subject_id,requirement.subject_id)));
+ const subjectIds=new Set(subjectReqs.map(r=>Number(r.id)));
+ const dailyLimit=Math.max(...subjectReqs.map(r=>Number(r.daily_limit)));
+ if(!free && entries.filter(e=>subjectIds.has(Number(e.requirement_id))&&same(state.slots.find(s=>same(s.id,e.slot_id))?.weekday,slot.weekday)).length>=dailyLimit) return 'วิชานี้ลงครบจำนวนคาบต่อวันแล้ว (รวมครูทุกคน)';
  return null;
 }
 export function readiness(state,roomIds) {
@@ -23,7 +26,10 @@ export function readiness(state,roomIds) {
   const total=reqs.reduce((n,r)=>n+Number(r.periods_per_week),0);
   if(!slots.length || total!==slots.length) problems.push(`${room.name}: กำหนดวิชา ${total} คาบ แต่เปิดเวลาเรียน ${slots.length} คาบ`);
   const days=new Set(slots.map(c=>state.slots.find(s=>same(s.id,c.slot_id))?.weekday)).size;
-  for(const r of reqs) if(r.periods_per_week>days*r.daily_limit) problems.push(`${room.name}: ${r.subject_name} มีคาบมากกว่าจำนวนวันที่ลงได้`);
+  for(const subject of new Set(reqs.map(r=>r.subject_id??r.id))){
+   const parts=reqs.filter(r=>(r.subject_id??r.id)===subject);
+   if(parts.reduce((n,r)=>n+Number(r.periods_per_week),0)>days*Math.max(...parts.map(r=>Number(r.daily_limit))))problems.push(`${room.name}: ${parts[0].subject_name} รวมครูทุกคนมีคาบมากกว่าจำนวนวันที่ลงได้`);
+  }
  }
  if(!roomIds.length) problems.push('กรุณาเลือกห้องเรียน');
  return problems;

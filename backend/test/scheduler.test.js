@@ -16,3 +16,14 @@ test('Free manual mode relaxes daily distribution, while retaining teacher confl
 });
 test('Overlapping intervals are conflicts even for distinct slot identifiers',()=>{assert.equal(overlaps({weekday:1,starts_at:'09:00',ends_at:'10:00'},{weekday:1,starts_at:'09:30',ends_at:'10:30'}),true);assert.equal(overlaps({weekday:1,starts_at:'09:00',ends_at:'10:00'},{weekday:1,starts_at:'10:00',ends_at:'11:00'}),false);});
 test('Incomplete input is rejected, and impossible schedules return remaining lessons',()=>{const s=fixture();s.requirements[0].periods_per_week=6;assert.ok(readiness(s,[1]).length);s.requirements[0].periods_per_week=5;s.unavailable=s.slots.map(slot=>({teacher_id:1,slot_id:slot.id}));const r=solve(s,[1,2],30);assert.equal(r.complete,false);assert.ok(r.remaining.some(r=>r.teacher_id===1));});
+test('one subject can split weekly quota across teachers while sharing its daily limit',()=>{
+ const s=fixture();s.classrooms=[s.classrooms[0]];s.classroomSlots=s.classroomSlots.filter(c=>c.classroom_id===1);
+ s.requirements=[{id:1,classroom_id:1,subject_id:10,teacher_id:1,subject_name:'คณิต',periods_per_week:3,daily_limit:1},{id:2,classroom_id:1,subject_id:10,teacher_id:3,subject_name:'คณิต',periods_per_week:2,daily_limit:1},{id:3,classroom_id:1,subject_id:20,teacher_id:2,subject_name:'ไทย',periods_per_week:5,daily_limit:1}];
+ s.entries=[{id:101,classroom_id:1,requirement_id:1,teacher_id:1,slot_id:1,source:'manual',locked:1}];
+ assert.match(placementError(s,s.entries,s.requirements[1],s.slots[1]),/รวมครู/);
+ assert.equal(placementError(s,s.entries,s.requirements[1],s.slots[1],true),null);
+ assert.deepEqual(readiness(s,[1]),[]);
+ const result=solve(s,[1]);assert.equal(result.complete,true);assert.equal(result.entries.filter(e=>e.requirement_id===1).length,3);assert.equal(result.entries.filter(e=>e.requirement_id===2).length,2);assert.ok(result.entries.some(e=>e.id===101));
+ for(const entry of result.entries)assert.equal(placementError(s,result.entries.filter(e=>e!==entry),s.requirements.find(r=>r.id===entry.requirement_id),s.slots.find(slot=>slot.id===entry.slot_id)),null);
+ s.requirements[1].periods_per_week=3;s.requirements[2].periods_per_week=4;assert.ok(readiness(s,[1]).some(p=>p.includes('รวมครู')));
+});
