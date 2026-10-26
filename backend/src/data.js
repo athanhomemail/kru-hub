@@ -1,3 +1,4 @@
+import {ensureRoomsOpen} from './grade-workflow.js';
 import {insertSlotBatch,setupFields} from './school-setup.js';
 import {saveSubjectGrades,validateSubjectGrade,curriculumItems,applyCurriculum} from './curriculum.js';
 import { Router } from 'express';
@@ -83,6 +84,7 @@ dataRoutes.put('/classrooms/:id/slots',async(req,res)=>{
  await transaction(async c=>{
  await c.query('SELECT id FROM terms WHERE school_id=? AND id=? FOR UPDATE',[req.school.id,term]);
  const [[r]]=await c.query('SELECT c.id,c.grade_level_id FROM classrooms c JOIN terms t ON t.school_id=c.school_id AND t.academic_year_id=c.academic_year_id WHERE c.school_id=? AND c.id=? AND t.id=?',[req.school.id,room,term]);if(!r)fail(400,'ห้องและภาคเรียนต้องอยู่ในปีการศึกษาเดียวกัน');
+ await ensureRoomsOpen(c,req.school.id,term,[room]);
  const wanted=(req.body.slots||[]).map(id);const [current]=await c.query('SELECT slot_id FROM classroom_slots WHERE school_id=? AND term_id=? AND classroom_id=?',[req.school.id,term,room]);
  for(const row of current)if(!wanted.includes(Number(row.slot_id)))await c.query('DELETE FROM classroom_slots WHERE school_id=? AND term_id=? AND classroom_id=? AND slot_id=?',[req.school.id,term,room,row.slot_id]);
  for(const slot of wanted)if(!current.some(r=>Number(r.slot_id)===slot))await c.query('INSERT INTO classroom_slots VALUES (?,?,?,?)',[req.school.id,term,room,slot]);
@@ -101,6 +103,7 @@ dataRoutes.post('/requirements',async(req,res)=>{
  const requirement=await transaction(async c=>{
  await c.query('SELECT id FROM terms WHERE school_id=? AND id=? FOR UPDATE',[req.school.id,term]);
  const [[r]]=await c.query('SELECT c.id,c.grade_level_id FROM classrooms c JOIN terms t ON t.school_id=c.school_id AND t.academic_year_id=c.academic_year_id WHERE c.school_id=? AND c.id=? AND t.id=?',[req.school.id,room,term]);if(!r)fail(400,'ห้องและภาคเรียนคนละปีการศึกษา');
+ await ensureRoomsOpen(c,req.school.id,term,[room]);
  await validateSubjectGrade(c,req.school.id,id(req.body.subject_id),r.grade_level_id);
  const [[teacher]]=await c.query('SELECT id FROM staff WHERE school_id=? AND id=? AND is_teacher=TRUE AND active=TRUE',[req.school.id,id(req.body.teacher_id)]);if(!teacher)fail(400,'ผู้สอนต้องเป็นครูที่เปิดใช้งาน');
  const values=curriculumItems([{subject_id:req.body.subject_id,periods_per_week:req.body.periods_per_week,daily_limit:req.body.daily_limit||1}])[0];
@@ -111,7 +114,7 @@ dataRoutes.post('/requirements',async(req,res)=>{
 });
 dataRoutes.delete('/requirements/:id',async(req,res)=>{
  const [[r]]=await pool.query('SELECT * FROM teaching_requirements WHERE school_id=? AND id=?',[req.school.id,id(req.params.id)]);if(!r)fail(404,'ไม่พบวิชา');await canCoordinate(req,r.term_id,[r.classroom_id]);
- await transaction(async c=>{await c.query('SELECT id FROM terms WHERE school_id=? AND id=? FOR UPDATE',[req.school.id,r.term_id]);await c.query('DELETE FROM teaching_requirements WHERE school_id=? AND id=?',[req.school.id,r.id]);await audit(c,req,'delete','teaching_requirements',r.id);});res.json({ok:true});
+ await transaction(async c=>{await c.query('SELECT id FROM terms WHERE school_id=? AND id=? FOR UPDATE',[req.school.id,r.term_id]);await ensureRoomsOpen(c,req.school.id,r.term_id,[r.classroom_id]);await c.query('DELETE FROM teaching_requirements WHERE school_id=? AND id=?',[req.school.id,r.id]);await audit(c,req,'delete','teaching_requirements',r.id);});res.json({ok:true});
 });
 dataRoutes.put('/coordinator',async(req,res)=>{
  admin(req);await pool.query('INSERT INTO grade_coordinators VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE staff_id=VALUES(staff_id)',[req.school.id,id(req.body.term_id),id(req.body.grade_level_id),id(req.body.staff_id)]);res.json({ok:true});
@@ -122,7 +125,7 @@ dataRoutes.put('/unavailable',async(req,res)=>{
  await transaction(async c=>{
  await c.query('SELECT id FROM terms WHERE school_id=? AND id=? FOR UPDATE',[req.school.id,term]);
  const slots=(req.body.slots||[]).map(id);
- if(slots.length){const [entries]=await c.query("SELECT e.slot_id FROM timetable_entries e JOIN timetable_versions v ON v.id=e.version_id AND v.school_id=e.school_id WHERE e.school_id=? AND e.teacher_id=? AND e.term_id=? AND e.slot_id IN (?) AND v.status<>'archived'",[req.school.id,teacher,term,slots]);if(entries.length)fail(400,'ครูมีคาบสอนในเวลาที่เลือก กรุณาปรับตารางก่อน');}
+ if(slots.length){const [entries]=await c.query("SELECT e.slot_id FROM timetable_entries e JOIN timetable_versions v ON v.id=e.version_id AND v.school_id=e.school_id WHERE e.school_id=? AND e.teacher_id=? AND e.term_id=? AND e.slot_id IN (?) AND EXISTS(SELECT 1 FROM term_timetables current WHERE current.school_id=v.school_id AND current.version_id=v.id)",[req.school.id,teacher,term,slots]);if(entries.length)fail(400,'ครูมีคาบสอนในเวลาที่เลือก กรุณาปรับตารางก่อน');}
  await c.query('DELETE FROM teacher_unavailability WHERE school_id=? AND term_id=? AND teacher_id=?',[req.school.id,term,teacher]);
  for(const slot of slots)await c.query('INSERT INTO teacher_unavailability VALUES (?,?,?,?,?)',[req.school.id,term,teacher,slot,'กำหนดโดยผู้ใช้']);await audit(c,req,'update','teacher_unavailability',teacher);
  });res.json({ok:true});
@@ -179,7 +182,7 @@ dataRoutes.get('/portal',async(req,res)=>{
  const [students]=await pool.query(`SELECT s.id,s.display_name,s.code,c.id AS classroom_id,c.name AS classroom_name FROM ${mapping} a JOIN students s ON s.school_id=a.school_id AND s.id=a.student_id JOIN enrollments e ON e.school_id=s.school_id AND e.student_id=s.id AND e.academic_year_id=? JOIN classrooms c ON c.school_id=e.school_id AND c.id=e.classroom_id WHERE a.school_id=? AND a.membership_id=?`,[req.member.academic_year_id,req.school.id,req.member.id]);
  const schedules=[];
  for(const student of students){
- const [entries]=await pool.query("SELECT e.*,sl.weekday,sl.period_number,sl.starts_at,sl.ends_at,sub.name AS subject_name,st.display_name AS teacher_name FROM timetable_entries e JOIN timetable_versions v ON v.id=e.version_id AND v.school_id=e.school_id AND v.status='published' JOIN terms t ON t.id=v.term_id AND t.school_id=v.school_id JOIN teaching_slots sl ON sl.id=e.slot_id AND sl.school_id=e.school_id JOIN teaching_requirements r ON r.id=e.requirement_id AND r.school_id=e.school_id JOIN subjects sub ON sub.id=r.subject_id AND sub.school_id=r.school_id JOIN staff st ON st.id=e.teacher_id AND st.school_id=e.school_id WHERE e.school_id=? AND e.classroom_id=? AND t.academic_year_id=? ORDER BY sl.weekday,sl.period_number",[req.school.id,student.classroom_id,req.member.academic_year_id]);schedules.push({student,entries});
+ const [entries]=await pool.query("SELECT e.*,sl.weekday,sl.period_number,sl.starts_at,sl.ends_at,sub.name AS subject_name,st.display_name AS teacher_name FROM timetable_entries e JOIN timetable_versions v ON v.id=e.version_id AND v.school_id=e.school_id JOIN term_timetables current ON current.school_id=v.school_id AND current.version_id=v.id JOIN classrooms cr ON cr.school_id=e.school_id AND cr.id=e.classroom_id JOIN timetable_grade_completion done ON done.school_id=v.school_id AND done.term_id=v.term_id AND done.grade_level_id=cr.grade_level_id JOIN terms t ON t.id=v.term_id AND t.school_id=v.school_id JOIN teaching_slots sl ON sl.id=e.slot_id AND sl.school_id=e.school_id JOIN teaching_requirements r ON r.id=e.requirement_id AND r.school_id=e.school_id JOIN subjects sub ON sub.id=r.subject_id AND sub.school_id=r.school_id JOIN staff st ON st.id=e.teacher_id AND st.school_id=e.school_id WHERE e.school_id=? AND e.classroom_id=? AND t.academic_year_id=? ORDER BY sl.weekday,sl.period_number",[req.school.id,student.classroom_id,req.member.academic_year_id]);schedules.push({student,entries});
  }res.json(schedules);
 });
 dataRoutes.post('/accounts/:id/reset',async(req,res)=>{
@@ -209,6 +212,7 @@ dataRoutes.put('/requirements/:id',async(req,res)=>{
  const values=curriculumItems([{subject_id:record.subject_id,periods_per_week:req.body.periods_per_week,daily_limit:req.body.daily_limit}])[0];
  await transaction(async c=>{
  await c.query('SELECT id FROM terms WHERE school_id=? AND id=? FOR UPDATE',[req.school.id,record.term_id]);
+ await ensureRoomsOpen(c,req.school.id,record.term_id,[record.classroom_id]);
  const [entries]=await c.query('SELECT id FROM timetable_entries WHERE school_id=? AND requirement_id=? LIMIT 1',[req.school.id,recordId]);if(entries.length)fail(400,'วิชานี้มีคาบในตารางแล้ว ต้องรักษาข้อมูลตารางและประวัติเดิม');
  const teacher=id(req.body.teacher_id);const [[allowed]]=await c.query('SELECT s.id FROM staff s JOIN teacher_subjects ts ON ts.school_id=s.school_id AND ts.teacher_id=s.id WHERE s.school_id=? AND s.id=? AND s.active=TRUE AND s.is_teacher=TRUE AND ts.subject_id=?',[req.school.id,teacher,record.subject_id]);if(!allowed)fail(400,'ครูไม่ได้รับมอบหมายให้สอนวิชานี้');
  await c.query('UPDATE teaching_requirements SET teacher_id=?,periods_per_week=?,daily_limit=? WHERE school_id=? AND id=?',[teacher,values.periods_per_week,values.daily_limit,req.school.id,recordId]);await audit(c,req,'update','teaching_requirements',recordId);

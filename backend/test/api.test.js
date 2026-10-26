@@ -14,7 +14,7 @@ async function request(path,body,method='GET',sessionCookie=cookie){
  const data=response.headers.get('content-type')?.includes('application/json')?await response.json():await response.text();
  return {status:response.status,data,cookie:response.headers.get('set-cookie')?.split(';')[0]};
 }
-test('live account, tenant, manual/Auto, publish, export and document-sharing workflow',{skip:!enabled},async()=>{
+test('live account, tenant, manual/Auto, grade completion, export and document-sharing workflow',{skip:!enabled},async()=>{
  const tag=randomUUID().slice(0,8);let otherSchool,staffId,accountId,userId,shareId,planId;
  let schoolId;let versionId;
  try{
@@ -27,7 +27,12 @@ test('live account, tenant, manual/Auto, publish, export and document-sharing wo
   assert.equal((await request(`/schools/${otherSchool}/data`)).status,403);
   const data=(await request(`${url}/data`)).data;
   const term=data.terms[0].id;
-  const version=await request(`${url}/timetables`,{term_id:term,empty:true},'POST');assert.equal(version.status,201);versionId=version.data.id;
+  // Prepare a fresh disposable schedule without exposing draft creation in the product.
+  const [fixture]=await pool.query('INSERT INTO timetable_versions(school_id,term_id,created_by) VALUES (?,?,?)',[schoolId,term,me.data.user.id]);versionId=fixture.insertId;
+  await pool.query('DELETE FROM term_timetables WHERE school_id=? AND term_id=?',[schoolId,term]);await pool.query('INSERT INTO term_timetables VALUES (?,?,?)',[schoolId,term,versionId]);
+  const opened=await request(`${url}/timetables/open`,{term_id:term},'POST');assert.equal(opened.status,200);assert.equal(opened.data.version.id,versionId);
+  const grade=data.classrooms.find(r=>r.id===data.teaching_requirements[0].classroom_id)?.grade_level_id||data.grade_levels[0].id;
+
   let state=(await request(`${url}/timetables/${versionId}`)).data;
   const req=state.requirements[0],slot=state.slots[0];
   // A requirement referenced by prior schedules must not be silently rewritten.
@@ -50,7 +55,7 @@ test('live account, tenant, manual/Auto, publish, export and document-sharing wo
   for(const entry of state.entries){assert.equal(placementError(state,state.entries.filter(e=>e.id!==entry.id),state.requirements.find(r=>r.id===entry.requirement_id),state.slots.find(s=>s.id===entry.slot_id)),null);}
   const clear=await request(`${url}/timetables/${versionId}/clear-auto`,{revision:state.version.revision,room_ids:data.classrooms.map(r=>r.id)},'POST');assert.equal(clear.status,200);
   state=(await request(`${url}/timetables/${versionId}`)).data;assert.equal(state.entries.length,1);assert.equal(state.entries[0].id,locked.id);
-  assert.equal((await request(`${url}/timetables/${versionId}/publish`,{revision:state.version.revision},'POST')).status,400);
+  assert.equal((await request(`${url}/timetables/${versionId}/grades/${grade}/complete`,{revision:state.version.revision},'POST')).status,400);
   const unavailable=await request(`${url}/unavailable`,{teacher_id:req.teacher_id,term_id:term,slots:[slot.id]},'PUT');assert.equal(unavailable.status,400);
   await request(`${url}/timetables/${versionId}/auto`,{revision:state.version.revision,room_ids:data.classrooms.map(r=>r.id)},'POST');
   state=(await request(`${url}/timetables/${versionId}`)).data;
@@ -79,8 +84,8 @@ test('live account, tenant, manual/Auto, publish, export and document-sharing wo
   state=(await request(`${url}/timetables/${versionId}`)).data;
   assert.equal((await request(`${url}/timetables/${versionId}/placement`,{revision:state.version.revision,requirement_id:beforeUnlock.requirement_id,slot_id:beforeUnlock.slot_id,free:true},'POST')).status,200);
   state=(await request(`${url}/timetables/${versionId}`)).data;
-  assert.equal((await request(`${url}/timetables/${versionId}/publish`,{revision:state.version.revision},'POST')).status,200);
-  assert.equal((await request(`${url}/timetables/${versionId}/entries/${locked.id}/unlock`,{revision:state.version.revision+1},'POST')).status,400);
+  assert.equal((await request(`${url}/timetables/${versionId}/grades/${grade}/complete`,{revision:state.version.revision},'POST')).status,200);
+  assert.equal((await request(`${url}/timetables/${versionId}/clear-auto`,{revision:state.version.revision+1,room_ids:data.classrooms.map(r=>r.id)},'POST')).status,400);
   const csv=await request(`${url}/timetables/${versionId}/export`);assert.equal(csv.status,200);assert.match(csv.data,/คณิตศาสตร์/);
   for(const format of ['pdf','xlsx']){
    const exported=await fetch(`${base}${url}/timetables/${versionId}/download?format=${format}&view=room&room_id=${req.classroom_id}`,{headers:{Cookie:cookie}});
@@ -129,7 +134,7 @@ test('live account, tenant, manual/Auto, publish, export and document-sharing wo
   if(userId){await pool.query('DELETE FROM sessions WHERE user_id=?',[userId]);await pool.query('DELETE FROM staff WHERE id=?',[staffId]);staffId=null;await pool.query('DELETE FROM memberships WHERE id=?',[accountId]);await pool.query('DELETE FROM users WHERE id=?',[userId]);}
   if(staffId)await pool.query('DELETE FROM staff WHERE id=?',[staffId]);
   if(otherSchool)await pool.query('DELETE FROM schools WHERE id=?',[otherSchool]);
-  // The successfully published example remains available for local UI review.
+  // The completed example remains available for local UI review.
  }
 });
 test.after(async()=>{await pool.end();});

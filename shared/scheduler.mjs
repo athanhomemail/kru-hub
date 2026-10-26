@@ -9,7 +9,7 @@ export function placementError(state, entries, requirement, slot, free = false) 
   const other=state.slots.find(s=>same(s.id,entry.slot_id));
   if(!other || !overlaps(slot,other)) continue;
   if(same(entry.classroom_id,requirement.classroom_id)) return 'ห้องเรียนมีวิชาอยู่ในช่วงเวลานี้แล้ว';
-  if(same(entry.teacher_id,requirement.teacher_id)) return 'ครูมีคาบสอนห้องอื่นในช่วงเวลานี้';
+  if(same(entry.teacher_id,requirement.teacher_id)) return `ครูมีคาบสอนห้อง ${state.classrooms.find(r=>same(r.id,entry.classroom_id))?.name||entry.classroom_id} ในช่วงเวลานี้`;
  }
  const own=entries.filter(e=>same(e.requirement_id,requirement.id));
  if(own.length>=requirement.periods_per_week) return 'วิชานี้ครบจำนวนคาบต่อสัปดาห์แล้ว';

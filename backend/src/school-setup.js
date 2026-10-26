@@ -28,6 +28,11 @@ export function classroomName(abbreviation,roomNumber){
 }
 export async function setupFields(c,school,entity,body,creating=false){
  const result={...body};
+ if(entity==='classrooms'&&body.academic_year_id){
+  const [terms]=await c.query('SELECT id FROM terms WHERE school_id=? AND academic_year_id=? ORDER BY id FOR UPDATE',[school,id(body.academic_year_id)]);
+  for(const term of terms){const [[done]]=await c.query('SELECT 1 FROM timetable_grade_completion WHERE school_id=? AND term_id=? AND grade_level_id=?',[school,term.id,id(body.grade_level_id)]);if(done)fail(400,'ชั้นนี้จัดตารางเสร็จแล้ว กรุณาเปิดแก้ไขชั้นนี้ก่อนเพิ่มหรือเปลี่ยนห้อง');}
+ }
+
  if(entity==='grade_levels'){
   result.abbreviation=body.abbreviation==null||String(body.abbreviation).trim()===''?null:text(body.abbreviation,20);
   if(creating&&body.sort_order===undefined){await c.query('SELECT id FROM schools WHERE id=? FOR UPDATE',[school]);const [[row]]=await c.query('SELECT COALESCE(MAX(sort_order),0)+1 AS next_order FROM grade_levels WHERE school_id=?',[school]);result.sort_order=row.next_order;}

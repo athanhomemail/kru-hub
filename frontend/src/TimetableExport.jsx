@@ -20,7 +20,7 @@ export default function TimetableExport({data,schoolId,state,view,roomId,teacher
   finally{setBusy('');}
  }
  return <Modal title="ดาวน์โหลดตารางเรียน / ตารางสอน" onClose={busy?()=>{}:onClose}>
-  <p className="form-note">วันอยู่ทางซ้าย คาบอยู่ด้านบน พร้อมเวลา วิชา และครูหรือห้องเรียน ดาวน์โหลดได้ทั้งฉบับร่างและฉบับที่เผยแพร่แล้ว</p>
+  <p className="form-note">วันอยู่ทางซ้าย คาบอยู่ด้านบน พร้อมเวลา วิชา และครูหรือห้องเรียน แสดงสถานะจัดเสร็จหรือกำลังจัดของแต่ละชั้น</p>
   <div className="form-grid">
    <Field label="ประเภทตาราง"><select value={kind} disabled={!!busy} onChange={e=>{setKind(e.target.value);setScope('selected');}}><option value="room">ตารางเรียนแยกห้อง</option><option value="teacher">ตารางสอนแยกครู</option></select></Field>
    <Field label="ต้องการดาวน์โหลด"><select value={scope} disabled={!!busy} onChange={e=>setScope(e.target.value)}><option value="selected">{kind==='room'?'ห้องเดียว':'ครูคนเดียว'}</option>{kind==='room'&&<option value="grade">ทุกห้องในชั้นปี</option>}<option value="all">{kind==='room'?'ทุกห้องในภาคเรียน':'ครูทั้งหมด'}</option></select></Field>

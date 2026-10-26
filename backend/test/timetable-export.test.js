@@ -37,3 +37,12 @@ test('PDF embeds Thai fonts and produces separate landscape pages, including wid
  const buffer=await pdfExport(exportModel(state,data,school));const raw=buffer.toString('latin1');assert.ok(raw.startsWith('%PDF-'));assert.match(raw,/FontFile2/);
  assert.equal((raw.match(/\/Type \/Page\b/g)||[]).length,4);assert.match(raw,/\/MediaBox \[0 0 841\.89 595\.28\]/);
 });
+
+
+test('current timetable downloads show completion per grade instead of draft/publish labels',async()=>{
+ const {state,data,school}=exportFixture();state.is_current=true;state.gradeCompletion=[{grade_level_id:1}];
+ const model=exportModel(state,data,school);assert.equal(model.sheets[0].status,'จัดเสร็จแล้ว');assert.equal(model.sheets[1].status,'กำลังจัด');
+ const workbook=new ExcelJS.Workbook();await workbook.xlsx.load(await excelExport(model));
+ assert.match(workbook.worksheets[0].getCell('A3').value,/จัดเสร็จแล้ว/);assert.doesNotMatch(workbook.worksheets[0].getCell('A3').value,/ฉบับร่าง|เผยแพร่/);
+ assert.match(workbook.worksheets[1].getCell('A3').value,/กำลังจัด/);
+});

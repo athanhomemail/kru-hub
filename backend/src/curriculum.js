@@ -1,3 +1,4 @@
+import {ensureRoomsOpen} from './grade-workflow.js';
 import {fail,id,audit} from './common.js';
 export async function saveSubjectGrades(c,school,subject,values){
  if(!Array.isArray(values))fail(400,'ระดับชั้นต้องเป็นรายการ');
@@ -25,6 +26,7 @@ export async function applyCurriculum(c,req,term,grade,assignments){
  const normalized=assignments.map(a=>({room:id(a.classroom_id),subject:id(a.subject_id),teacher:id(a.teacher_id)}));
  if(new Set(normalized.map(a=>`${a.room}:${a.subject}`)).size!==normalized.length)fail(400,'รายการห้องและวิชาซ้ำ');
  const rooms=[...new Set(normalized.map(a=>a.room))];let added=0,skipped=0;
+ await ensureRoomsOpen(c,req.school.id,term,rooms);
  for(const room of rooms){
   const [[r]]=await c.query('SELECT c.id FROM classrooms c JOIN terms t ON t.school_id=c.school_id AND t.academic_year_id=c.academic_year_id WHERE c.school_id=? AND c.id=? AND c.grade_level_id=? AND t.id=?',[req.school.id,room,grade,term]);if(!r)fail(400,'ห้องและชั้นปีไม่ตรงกับภาคเรียน');
   for(const item of items){

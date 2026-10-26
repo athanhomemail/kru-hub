@@ -34,7 +34,8 @@ try {
    for(let j=0;j<5;j++) await insert('INSERT INTO teaching_requirements(school_id,term_id,classroom_id,subject_id,teacher_id,periods_per_week) VALUES (?,?,?,?,?,5)',[school,term,room,subjects[j],teachers[(j+i)%8]]);
   }
   await c.query('INSERT INTO grade_coordinators VALUES (?,?,?,?)',[school,term,grade,teachers[0]]);
-  await c.query('INSERT INTO timetable_versions(school_id,term_id,created_by) VALUES (?,?,?)',[school,term,user]);
+  const version=await insert('INSERT INTO timetable_versions(school_id,term_id,created_by) VALUES (?,?,?)',[school,term,user]);
+  await c.query('INSERT INTO term_timetables VALUES (?,?,?)',[school,term,version]);
   console.log('Created isolated demo school, 3 classrooms, 8 teachers and 25 weekly slots.');
  });
 } finally {await pool.end();}

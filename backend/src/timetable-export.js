@@ -37,7 +37,7 @@ export function exportModel(state,data,school,query={}){
  const sheets=entities.map(entity=>{
   const entries=state.entries.filter(e=>same(view==='room'?e.classroom_id:e.teacher_id,entity.id));
   const bySlot=new Map(entries.map(e=>[Number(e.slot_id),e]));
-  return {id:entity.id,name:view==='room'?entity.name:entity.display_name,title:`${view==='room'?'ตารางเรียน':'ตารางสอน'} · ${view==='room'?entity.name:entity.display_name}`,count:entries.length,rows:weekdays.map(day=>({day,label:days[day],cells:periods.map(period=>{
+  return {status:state.is_current?(view==='room'?(state.gradeCompletion?.some(g=>same(g.grade_level_id,entity.grade_level_id))?'จัดเสร็จแล้ว':'กำลังจัด'):'ตารางครูรวมทุกชั้น'):null,id:entity.id,name:view==='room'?entity.name:entity.display_name,title:`${view==='room'?'ตารางเรียน':'ตารางสอน'} · ${view==='room'?entity.name:entity.display_name}`,count:entries.length,rows:weekdays.map(day=>({day,label:days[day],cells:periods.map(period=>{
    const slot=state.slots.find(s=>same(s.weekday,day)&&same(s.period_number,period));
    if(!slot)return {text:'ไม่มีคาบเรียน',color:'F3F4F6',available:false};
    const entry=bySlot.get(Number(slot.id));
@@ -47,7 +47,7 @@ export function exportModel(state,data,school,query={}){
    return {text:`${req?.subject_name||subject?.name||'รายวิชา'}\n${view==='room'?teachers.get(Number(entry.teacher_id))||'':`ห้อง ${rooms.get(Number(entry.classroom_id))||''}`}`,time:time(slot),color:subject?.color||palette[0],available:true};
   })}))};
  });
- return {view,school:school.name,version:state.version.id,revision:state.version.revision,status:statusNames[state.version.status]||state.version.status,term:`ปีการศึกษา ${year?.buddhist_year||''} · ภาคเรียนที่ ${term?.term_number||''}`,periods,sheets};
+ return {workflow:state.is_current===true,view,school:school.name,version:state.version.id,revision:state.version.revision,status:statusNames[state.version.status]||state.version.status,term:`ปีการศึกษา ${year?.buddhist_year||''} · ภาคเรียนที่ ${term?.term_number||''}`,periods,sheets};
 }
 
 function sheetName(value,used){
@@ -63,7 +63,7 @@ export async function excelExport(model){
   const width=model.periods.length+1;
   sheet.columns=[{width:16},...model.periods.map(()=>({width:25}))];
   const heading=(row,text,size,color)=>{sheet.mergeCells(row,1,row,width);const c=sheet.getCell(row,1);c.value=text;c.font={name:'Sarabun',size,bold:true,color:{argb:color}};c.alignment={vertical:'middle',wrapText:true};sheet.getRow(row).height=Math.max(size*2,Math.ceil(text.length/(width*12))*size*1.5);};
-  heading(1,model.school,16,'FF6D284A');heading(2,item.title,20,'FF292333');heading(3,`${model.term} · ฉบับ #${model.version} · ${model.status}`,11,'FF6B6472');heading(4,`รวม ${item.count} คาบต่อสัปดาห์`,11,'FF6B6472');
+  heading(1,model.school,16,'FF6D284A');heading(2,item.title,20,'FF292333');heading(3,`${model.term} · ${model.workflow?item.status:`ฉบับ #${model.version} · ${model.status}`}`,11,'FF6B6472');heading(4,`รวม ${item.count} คาบต่อสัปดาห์`,11,'FF6B6472');
   sheet.getRow(5).values=['วัน / คาบ',...model.periods.map(p=>`คาบ ${p}`)];sheet.getRow(5).height=30;
   for(let col=1;col<=width;col++){const cell=sheet.getCell(5,col);cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF6D284A'}};cell.font={name:'Sarabun',size:12,bold:true,color:{argb:'FFFFFFFF'}};cell.alignment={vertical:'middle',horizontal:'center'};}
   item.rows.forEach((row,i)=>{
@@ -95,7 +95,7 @@ export async function pdfExport(model){
     doc.rect(0,0,doc.page.width,8).fill('#6D284A');
     y=24;doc.font('ThaiBold').fontSize(13).fillColor('#6D284A');doc.text(model.school,margin,y,{width});y+=doc.heightOfString(model.school,{width})+4;
     doc.fontSize(20).fillColor('#292333');doc.text(item.title,margin,y,{width});y+=doc.heightOfString(item.title,{width})+4;
-    doc.font('Thai').fontSize(10).fillColor('#6B6472');const subtitle=`${model.term} · ฉบับ #${model.version} · ${model.status} · รวม ${item.count} คาบ/สัปดาห์`;
+    doc.font('Thai').fontSize(10).fillColor('#6B6472');const subtitle=`${model.term} · ${model.workflow?item.status:`ฉบับ #${model.version} · ${model.status}`} · รวม ${item.count} คาบ/สัปดาห์`;
     doc.text(subtitle,margin,y,{width});y+=doc.heightOfString(subtitle,{width})+14;
     if(model.periods.length>6){doc.text(`คาบ ${periods[0]}-${periods.at(-1)}`,margin,y,{width});y+=20;}
     const header=(text,x,w)=>{doc.rect(x,y,w,32).fill('#6D284A');doc.font('ThaiBold').fontSize(11).fillColor('#FFFFFF').text(text,x+5,y+6,{width:w-10,align:'center'});};

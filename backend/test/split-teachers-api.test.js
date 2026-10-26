@@ -23,7 +23,7 @@ test('API assigns 3+2 periods of one subject to two teachers and schedules each 
  assert.equal((await call(`${url}/requirements`,{term_id:term,classroom_id:room,subject_id:subject,teacher_id:teachers[0],periods_per_week:1,daily_limit:1},'POST')).status,400);
  // Editing each teacher allocation remains separate while there are no scheduled entries.
  assert.equal((await call(`${url}/requirements/${requirements[1]}`,{teacher_id:teachers[1],periods_per_week:2,daily_limit:1},'PUT')).status,200);
- const draft=await call(`${url}/timetables`,{term_id:term,empty:true},'POST');assert.equal(draft.status,201);version=draft.data.id;
+ const opened=await call(`${url}/timetables/open`,{term_id:term},'POST');assert.equal(opened.status,200);version=opened.data.version.id;
  let state=(await call(`${url}/timetables/${version}`)).data;
  assert.equal((await call(`${url}/timetables/${version}/placement`,{revision:state.version.revision,requirement_id:requirements[0],slot_id:slots[0].id},'POST')).status,200);
  state=(await call(`${url}/timetables/${version}`)).data;
