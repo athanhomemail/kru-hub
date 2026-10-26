@@ -27,3 +27,7 @@ dialog.modal{position:fixed;inset:0;margin:auto;max-height:calc(100dvh - 40px);m
 .grade-completion-actions{padding-top:14px;border-top:1px solid var(--border)}.grade-completion-actions strong{font-size:14px}.teacher-commitment{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;padding:12px 0;background:none;border:0;border-bottom:1px solid var(--border);text-align:left;color:var(--text);font-size:12px}.teacher-commitment small{display:block;margin-top:6px;color:var(--muted)}
 @media(max-width:620px){.grade-progress{padding:16px}.grade-progress-heading,.grade-completion-actions{align-items:flex-start;flex-direction:column}.grade-completion-actions .btn{width:100%}}
 .requirements-panel .teacher-load{display:block}
+.timetable-controls .term-control{flex:0 1 420px}
+.panel-timetable-filter{min-width:220px;max-width:100%}.panel-timetable-filter .field{margin:0}.panel-timetable-filter select{width:100%;min-height:44px}
+.schedule-heading{gap:20px;flex-wrap:wrap}.panel-room-actions{align-items:flex-end}
+@media(max-width:620px){.timetable-controls .term-control,.panel-timetable-filter,.panel-room-actions{width:100%;min-width:0}.schedule-heading>.panel-timetable-filter{flex-basis:100%}.panel-room-actions{align-items:stretch;flex-direction:column}.requirements-panel .panel-heading{align-items:flex-start;flex-wrap:wrap}}
