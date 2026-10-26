@@ -82,6 +82,16 @@ test('live account, tenant, manual/Auto, publish, export and document-sharing wo
   assert.equal((await request(`${url}/timetables/${versionId}/publish`,{revision:state.version.revision},'POST')).status,200);
   assert.equal((await request(`${url}/timetables/${versionId}/entries/${locked.id}/unlock`,{revision:state.version.revision+1},'POST')).status,400);
   const csv=await request(`${url}/timetables/${versionId}/export`);assert.equal(csv.status,200);assert.match(csv.data,/คณิตศาสตร์/);
+  for(const format of ['pdf','xlsx']){
+   const exported=await fetch(`${base}${url}/timetables/${versionId}/download?format=${format}&view=room&room_id=${req.classroom_id}`,{headers:{Cookie:cookie}});
+   assert.equal(exported.status,200);assert.match(exported.headers.get('content-disposition'),/attachment/);
+   const bytes=Buffer.from(await exported.arrayBuffer());assert.equal(bytes.subarray(0,format==='pdf'?5:2).toString(),format==='pdf'?'%PDF-':'PK');
+  }
+  assert.equal((await request(`${url}/timetables/${versionId}/download?format=xlsx&view=teacher&teacher_id=${req.teacher_id}`)).status,200);
+  assert.equal((await request(`${url}/timetables/${versionId}/download?format=html`)).status,400);
+  assert.equal((await request(`${url}/timetables/${versionId}/download?format=pdf&room_id=999999999`)).status,404);
+  assert.equal((await request(`/schools/${otherSchool}/timetables/${versionId}/download?format=pdf`)).status,403);
+
   assert.equal((await request(`${url}/timetables/${versionId}/clear-auto`,{revision:state.version.revision+1,room_ids:data.classrooms.map(r=>r.id)},'POST')).status,400);
   const staff=await request(`${url}/data/staff`,{code:`test-${tag}`,display_name:'ครูทดสอบสิทธิ์',is_teacher:1,department_id:data.departments[0].id},'POST');assert.equal(staff.status,201);staffId=staff.data.id;
   const account=await request(`${url}/accounts`,{role:'staff',staff_id:staffId,username:`test-${tag}`,display_name:'ครูทดสอบสิทธิ์'},'POST');assert.equal(account.status,201);accountId=account.data.id;

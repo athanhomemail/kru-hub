@@ -5,6 +5,7 @@ import { fail,id,transaction,audit } from './common.js';
 import { staffAccess } from './auth.js';
 import { canCoordinate,loadData } from './data.js';
 import { placementError,readiness,previewMove,isLockedEntry } from './scheduler.js';
+import {exportModel,excelExport,pdfExport} from './timetable-export.js';
 export const timetableRoutes=Router({mergeParams:true});
 async function stateFor(req,c,versionId,lock=false){
  if(lock){const [[reference]]=await c.query('SELECT term_id FROM timetable_versions WHERE school_id=? AND id=?',[req.school.id,id(versionId)]);if(!reference)fail(404,'ไม่พบตาราง');await c.query('SELECT id FROM terms WHERE school_id=? AND id=? FOR UPDATE',[req.school.id,reference.term_id]);}
@@ -109,6 +110,20 @@ timetableRoutes.get('/timetables/:id/export',async(req,res)=>{
  const csv=(v)=>`"${String(v??'').replace(/^[=+\-@]/,"'$&").replaceAll('"','""')}"`;
  const rows=[['ห้อง','วัน','คาบ','เริ่ม','จบ','วิชา','ครู','วิธีจัด'],...s.entries.map(e=>{const slot=s.slots.find(s=>s.id===e.slot_id),r=s.requirements.find(r=>r.id===e.requirement_id);return [s.classrooms.find(c=>c.id===e.classroom_id)?.name,['','จันทร์','อังคาร','พุธ','พฤหัสบดี','ศุกร์','เสาร์','อาทิตย์'][slot.weekday],slot.period_number,slot.starts_at,slot.ends_at,r.subject_name,data.staff.find(t=>t.id===e.teacher_id)?.display_name,e.source];})];
  res.set('Content-Type','text/csv; charset=utf-8').attachment('kruhub-timetable.csv').send('\uFEFF'+rows.map(r=>r.map(csv).join(',')).join('\r\n'));
+});
+timetableRoutes.get('/timetables/:id/download',async(req,res)=>{
+ staffAccess(req);
+ if(!['pdf','xlsx'].includes(req.query.format))fail(400,'เลือกรูปแบบ PDF หรือ Excel');
+ const c=await pool.getConnection();let model;
+ try{
+  // Read a consistent revision even if someone edits the timetable during export.
+  await c.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');await c.query('START TRANSACTION READ ONLY');
+  const state=await stateFor(req,c,req.params.id);const data=await loadData(req.school.id,c);
+  model=exportModel(state,data,req.school,req.query);await c.commit();
+ }catch(error){await c.rollback();throw error;}finally{c.release();}
+ const pdf=req.query.format==='pdf';const buffer=await (pdf?pdfExport(model):excelExport(model));
+ res.set('Cache-Control','private, no-store');res.type(pdf?'application/pdf':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+ res.attachment(`kruhub-${model.view}-${model.version}.${pdf?'pdf':'xlsx'}`).send(buffer);
 });
 timetableRoutes.post('/timetables/:id/bulk-placement',async(req,res)=>{
  await transaction(async c=>{
