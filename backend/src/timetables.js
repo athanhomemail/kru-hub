@@ -60,6 +60,17 @@ timetableRoutes.post('/timetables/:id/move',async(req,res)=>{
  for(const entry of moves)await insertEntry(c,req,s,entry);await changed(c,req,s,'move');
  });notify(req);res.json({ok:true});
 });
+timetableRoutes.post('/timetables/:id/entries/:entryId/unlock',async(req,res)=>{
+ await transaction(async c=>{
+ const s=await stateFor(req,c,req.params.id,true);draft(req,s);
+ const entry=s.entries.find(e=>Number(e.id)===id(req.params.entryId));if(!entry)fail(404,'ไม่พบคาบ');
+ await canCoordinate(req,s.version.term_id,[entry.classroom_id],c);
+ if(!isLockedEntry(entry))return;
+ // An explicitly released lesson joins Auto; manual entries must remain locked by schema.
+ await c.query("UPDATE timetable_entries SET source='auto',locked=FALSE WHERE school_id=? AND version_id=? AND id=?",[req.school.id,s.version.id,entry.id]);
+ await changed(c,req,s,'unlock');
+ });notify(req);res.json({ok:true});
+});
 timetableRoutes.delete('/timetables/:id/entries/:entryId',async(req,res)=>{
  await transaction(async c=>{const s=await stateFor(req,c,req.params.id,true);draft(req,s);const entry=s.entries.find(e=>Number(e.id)===id(req.params.entryId));if(!entry)fail(404,'ไม่พบคาบ');if(isLockedEntry(entry))fail(400,'คาบนี้ถูกล็อก ห้ามลบหรือเปลี่ยนตำแหน่ง');await canCoordinate(req,s.version.term_id,[entry.classroom_id],c);await c.query('DELETE FROM timetable_entries WHERE school_id=? AND id=?',[req.school.id,entry.id]);await changed(c,req,s,'remove');});notify(req);res.json({ok:true});
 });

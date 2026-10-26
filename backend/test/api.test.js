@@ -68,7 +68,19 @@ test('live account, tenant, manual/Auto, publish, export and document-sharing wo
 
   assert.equal((await request(`${url}/timetables/${versionId}/move`,{revision:state.version.revision,entry_id:candidate[0].id,slot_id:candidate[1].slot_id,free:true},'POST')).status,200);
   state=(await request(`${url}/timetables/${versionId}`)).data;
+  // Only an explicit release can make a locked lesson editable again.
+  const beforeUnlock=state.entries.find(e=>e.id===locked.id);
+  assert.equal((await request(`${url}/timetables/${versionId}/entries/${locked.id}/unlock`,{revision:state.version.revision-1},'POST')).status,409);
+  assert.equal((await request(`${url}/timetables/${versionId}/entries/${locked.id}/unlock`,{revision:state.version.revision},'POST')).status,200);
+  const unlockedState=(await request(`${url}/timetables/${versionId}`)).data;
+  assert.equal(unlockedState.version.revision,state.version.revision+1);
+  assert.deepEqual(unlockedState.entries.find(e=>e.id===locked.id),{...beforeUnlock,source:'auto',locked:0});
+  assert.equal((await request(`${url}/timetables/${versionId}/entries/${locked.id}`,{revision:unlockedState.version.revision},'DELETE')).status,200);
+  state=(await request(`${url}/timetables/${versionId}`)).data;
+  assert.equal((await request(`${url}/timetables/${versionId}/placement`,{revision:state.version.revision,requirement_id:beforeUnlock.requirement_id,slot_id:beforeUnlock.slot_id,free:true},'POST')).status,200);
+  state=(await request(`${url}/timetables/${versionId}`)).data;
   assert.equal((await request(`${url}/timetables/${versionId}/publish`,{revision:state.version.revision},'POST')).status,200);
+  assert.equal((await request(`${url}/timetables/${versionId}/entries/${locked.id}/unlock`,{revision:state.version.revision+1},'POST')).status,400);
   const csv=await request(`${url}/timetables/${versionId}/export`);assert.equal(csv.status,200);assert.match(csv.data,/คณิตศาสตร์/);
   assert.equal((await request(`${url}/timetables/${versionId}/clear-auto`,{revision:state.version.revision+1,room_ids:data.classrooms.map(r=>r.id)},'POST')).status,400);
   const staff=await request(`${url}/data/staff`,{code:`test-${tag}`,display_name:'ครูทดสอบสิทธิ์',is_teacher:1,department_id:data.departments[0].id},'POST');assert.equal(staff.status,201);staffId=staff.data.id;
