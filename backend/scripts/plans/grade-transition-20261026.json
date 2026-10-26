@@ -1,0 +1,9 @@
+{
+  "school_id": 1,
+  "term_id": 1,
+  "require_no_published": true,
+  "grades": [
+    {"grade_level_id": 8, "source_version_id": 3, "expected_lessons": 125, "completed": true},
+    {"grade_level_id": 7, "source_version_id": 4, "expected_lessons": 125, "completed": false}
+  ]
+}
