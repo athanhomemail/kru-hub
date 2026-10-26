@@ -35,7 +35,7 @@ export function readiness(state,roomIds) {
  if(!roomIds.length) problems.push('กรุณาเลือกห้องเรียน');
  return problems;
 }
-export function solve(state,roomIds,limitMs=6000){return solveSchedule(state,roomIds,limitMs);}
+export function solve(state,roomIds,limitMs=6000,options={}){return solveSchedule(state,roomIds,limitMs,options);}
 export const isLockedEntry=entry=>!!entry&&(Number(entry.locked)===1||entry.source==='manual');
 // Used by both the UI preview and the API transaction. Validate the final two-way result.
 export function previewMove(state,entryId,slotId,free=false){

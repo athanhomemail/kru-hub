@@ -72,3 +72,20 @@ test('locked lessons are immutable sources and destinations, even in free mode',
  const before=JSON.stringify(s);assert.match(previewMove(s,11,3,true).error,/ต้นทางถูกล็อก/);assert.match(previewMove(s,12,1,true).error,/ปลายทางถูกล็อก/);assert.equal(JSON.stringify(s),before);
  s.entries[0].source='auto';assert.match(previewMove(s,11,3).error,/ถูกล็อก/);
 });
+test('rerunning Auto explores a different complete schedule while preserving locked lessons',()=>{
+ const s=fixture();s.entries=[{id:101,classroom_id:1,requirement_id:1,teacher_id:1,slot_id:1,source:'manual',locked:1}];
+ const first=solve(s,[1,2],1000,{seed:123});assert.equal(first.complete,true);
+ s.entries=first.entries.map((e,i)=>({...e,id:e.id||1000+i}));
+ const second=solve(s,[1,2],1000,{seed:456});assert.equal(second.complete,true);assert.equal(second.search.kept_previous,false);
+ const backtracked=solveSchedule(s,[1,2],1000,{seed:987,greedyAttempts:0});assert.equal(backtracked.complete,true);assert.equal(backtracked.search.kept_previous,false);
+ const signature=entries=>entries.map(e=>`${e.requirement_id}:${e.slot_id}`).sort().join('|');assert.notEqual(signature(first.entries),signature(second.entries));
+ assert.deepEqual(second.entries.find(e=>e.id===101),s.entries.find(e=>e.id===101));
+ for(const e of second.entries)assert.equal(placementError(s,second.entries.filter(x=>x!==e),s.requirements.find(r=>r.id===e.requirement_id),s.slots.find(slot=>slot.id===e.slot_id)),null);
+ // Clearing Auto also uses a fresh order, rather than the same fixed seed.
+ const cleared={...s,entries:s.entries.filter(e=>e.source==='manual')};
+ assert.notEqual(signature(solve(cleared,[1,2],1000,{seed:123}).entries),signature(solve(cleared,[1,2],1000,{seed:456}).entries));
+});
+test('when no alternative exists Auto keeps the valid schedule and reports it honestly',()=>{
+ const s={slots:[{id:1,weekday:1,starts_at:'08:30',ends_at:'09:20'}],classrooms:[{id:1,name:'only'}],classroomSlots:[{classroom_id:1,slot_id:1}],requirements:[{id:1,classroom_id:1,teacher_id:1,subject_id:1,periods_per_week:1,daily_limit:1}],entries:[{id:1,classroom_id:1,requirement_id:1,teacher_id:1,slot_id:1,source:'auto',locked:0}],unavailable:[]};
+ const result=solve(s,[1],100,{seed:7,greedyAttempts:5});assert.equal(result.complete,true);assert.equal(result.search.kept_previous,true);assert.equal(result.entries.length,1);
+});

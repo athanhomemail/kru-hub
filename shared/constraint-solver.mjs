@@ -1,4 +1,4 @@
-// Indexed occupancy and bounded backtracking. No database or clock-dependent random seed.
+// Indexed occupancy and bounded backtracking; each run explores a fresh seeded order.
 export function solveSchedule(state,roomIds,limitMs=6000,options={}){
  const started=Date.now(),deadline=started+Math.max(0,limitMs),targets=new Set(roomIds.map(Number));
  const slots=[...state.slots].sort((a,b)=>a.weekday-b.weekday||String(a.starts_at).localeCompare(String(b.starts_at))||Number(a.id)-Number(b.id));
@@ -21,20 +21,27 @@ export function solveSchedule(state,roomIds,limitMs=6000,options={}){
  function push(r,i){const entry={classroom_id:r.classroom_id,requirement_id:r.id,teacher_id:r.teacher_id,slot_id:slots[i].id,source:'auto',locked:0};entries.push(entry);stack.push({r,entry,last:r.last});occupy(entry,1);}
  function pop(){const {r,entry,last}=stack.pop();occupy(entry,-1);r.last=last;entries.pop();}
  let best=[...fixed],nodes=0,attempts=0,stopped=false;
+ const previous=new Set(state.entries.filter(e=>targets.has(Number(e.classroom_id))&&e.source==='auto'&&!e.locked).map(e=>`${e.requirement_id}:${e.slot_id}`));
+ const difference=()=>entries.filter(e=>e.source==='auto'&&!e.locked&&targets.has(Number(e.classroom_id))&&!previous.has(`${e.requirement_id}:${e.slot_id}`)).length;
+ let searching=false,baselineComplete=false,bestDifference=0;
+
  const goal=reqs.reduce((n,r)=>n+Math.max(0,Number(r.periods_per_week)-r.count),0)+fixed.length;
- const keep=()=>{if(entries.length>best.length)best=[...entries];return best.length>=goal;};
+ const keep=()=>{const changed=difference();if(entries.length>best.length||entries.length===best.length&&changed>bestDifference){best=[...entries];bestDifference=changed;}return entries.length>=goal&&(!searching||!baselineComplete||changed>0);};
  // Preserve any still-valid existing Auto entries as a lower bound, without keeping IDs that the API deletes.
  for(const entry of state.entries.filter(e=>targets.has(Number(e.classroom_id))&&e.source==='auto'&&!e.locked)){const r=reqById.get(Number(entry.requirement_id)),i=index.get(Number(entry.slot_id));if(r&&i!==undefined&&r.count<r.periods_per_week&&candidates(r).includes(i)){push(r,i);keep();}}
  while(stack.length)pop();
- let seed=0x9e3779b9;const random=()=>{seed^=seed<<13;seed^=seed>>>17;seed^=seed<<5;return (seed>>>0)/4294967296;};
+ baselineComplete=best.length>=goal;searching=true;
+ const runSeed=(options.seed??Math.floor(Math.random()*0x100000000))>>>0;
+ let seed=runSeed||0x9e3779b9;const random=()=>{seed^=seed<<13;seed^=seed>>>17;seed^=seed<<5;return (seed>>>0)/4294967296;};
  const greedyEnd=started+Math.min(1000,Math.max(0,limitMs*.25));
- while(best.length<goal&&attempts<(options.greedyAttempts??250)&&Date.now()<greedyEnd){
+ let found=goal===fixed.length;
+ while(!found&&attempts<(options.greedyAttempts??250)&&Date.now()<greedyEnd){
   attempts++;
   while(Date.now()<greedyEnd){
    const options=reqs.filter(r=>r.count<r.periods_per_week).map(r=>({r,remaining:r.periods_per_week-r.count,slots:candidates(r),tie:random()})).filter(o=>o.slots.length);
    if(!options.length)break;
    options.sort((a,b)=>a.slots.length/a.remaining-b.slots.length/b.remaining||a.tie-b.tie);
-   const o=options[0];push(o.r,o.slots[Math.floor(random()*o.slots.length)]);if(keep())break;
+   const o=options[0];push(o.r,o.slots[Math.floor(random()*o.slots.length)]);if(keep()){found=true;break;}
   }
   while(stack.length)pop();
  }
@@ -48,15 +55,15 @@ export function solveSchedule(state,roomIds,limitMs=6000,options={}){
    let capacity=0;for(const [day,n] of perDay)capacity+=Math.min(n,r.group.limit-r.group.days[day]);if(capacity<remaining)return false;
    const slack=available.length/remaining;if(!chosen||slack<chosen.slack)chosen={r,available,slack};
   }
-  if(!chosen)return true;
+  if(!chosen)return false;
   // Prefer values that remove the fewest other legal placements (least constraining value).
   const {r,available}=chosen;
   const cost=i=>{let value=0;for(const other of reqs){if(other===r||other.count>=other.periods_per_week)continue;for(const j of candidates(other)){if((other.room===r.room||other.teacher===r.teacher)&&conflicts[i].includes(j))value++;else if(other.group===r.group&&slots[j].weekday===slots[i].weekday&&r.group.days[slots[i].weekday]+1>=r.group.limit)value++;}}return value;};
-  const ordered=available.map(i=>({i,cost:cost(i)})).sort((a,b)=>a.cost-b.cost||a.i-b.i);
+  const ordered=available.map(i=>({i,cost:cost(i),old:previous.has(`${r.id}:${slots[i].id}`)?1:0,tie:random()})).sort((a,b)=>a.cost-b.cost||a.old-b.old||a.tie-b.tie);
   for(const {i} of ordered){push(r,i);r.last=i;if(search())return true;pop();if(stopped)return false;}
   return false;
  }
- if(best.length<goal&&Date.now()<deadline)search();
+ if(!found&&Date.now()<deadline)search();
  const remaining=reqs.map(r=>({...state.requirements.find(x=>Number(x.id)===Number(r.id)),remaining:Number(r.periods_per_week)-best.filter(e=>Number(e.requirement_id)===Number(r.id)).length})).filter(r=>r.remaining>0);
- return {entries:best,remaining,complete:!remaining.length,search:{algorithm:'indexed-search-v1',attempts,nodes,elapsed_ms:Date.now()-started,budget_exhausted:stopped||Date.now()>=deadline}};
+ return {entries:best,remaining,complete:!remaining.length,search:{algorithm:'indexed-search-v2',seed:runSeed,kept_previous:baselineComplete&&bestDifference===0,movable_lessons:goal-fixed.length,attempts,nodes,elapsed_ms:Date.now()-started,budget_exhausted:stopped||Date.now()>=deadline}};
 }

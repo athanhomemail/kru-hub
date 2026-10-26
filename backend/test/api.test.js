@@ -43,6 +43,10 @@ test('live account, tenant, manual/Auto, publish, export and document-sharing wo
   assert.equal((await request(`${url}/timetables/${versionId}`)).data.entries.length,1);
   const auto=await request(`${url}/timetables/${versionId}/auto`,{revision:state.version.revision,room_ids:data.classrooms.map(r=>r.id)},'POST');assert.equal(auto.status,200);assert.equal(auto.data.complete,true);
   state=(await request(`${url}/timetables/${versionId}`)).data;assert.equal(state.entries.length,75);assert.ok(state.entries.some(e=>e.id===locked.id&&e.source==='manual'));
+  const signature=entries=>entries.map(e=>`${e.requirement_id}:${e.slot_id}`).sort().join('|');const firstSchedule=signature(state.entries);
+  const reshuffle=await request(`${url}/timetables/${versionId}/auto`,{revision:state.version.revision,room_ids:data.classrooms.map(r=>r.id)},'POST');assert.equal(reshuffle.status,200);assert.equal(reshuffle.data.complete,true);assert.equal(reshuffle.data.search.kept_previous,false);
+  state=(await request(`${url}/timetables/${versionId}`)).data;assert.notEqual(signature(state.entries),firstSchedule);assert.ok(state.entries.some(e=>e.id===locked.id&&e.source==='manual'));
+
   for(const entry of state.entries){assert.equal(placementError(state,state.entries.filter(e=>e.id!==entry.id),state.requirements.find(r=>r.id===entry.requirement_id),state.slots.find(s=>s.id===entry.slot_id)),null);}
   const clear=await request(`${url}/timetables/${versionId}/clear-auto`,{revision:state.version.revision,room_ids:data.classrooms.map(r=>r.id)},'POST');assert.equal(clear.status,200);
   state=(await request(`${url}/timetables/${versionId}`)).data;assert.equal(state.entries.length,1);assert.equal(state.entries[0].id,locked.id);
