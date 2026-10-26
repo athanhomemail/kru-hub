@@ -36,3 +36,21 @@ export function readiness(state,roomIds) {
  return problems;
 }
 export function solve(state,roomIds,limitMs=6000){return solveSchedule(state,roomIds,limitMs);}
+// Used by both the UI preview and the API transaction. Validate the final two-way result.
+export function previewMove(state,entryId,slotId,free=false){
+ const source=state.entries.find(e=>same(e.id,entryId)),target=state.slots.find(s=>same(s.id,slotId));
+ if(!source||!target)return {error:'ไม่พบคาบที่ต้องการย้าย',moves:[]};
+ if(same(source.slot_id,target.id))return {error:'กรุณาเลือกคาบอื่น',moves:[],source};
+ const original=state.slots.find(s=>same(s.id,source.slot_id));if(!original)return {error:'ไม่พบเวลาต้นทาง',moves:[]};
+ const destination=state.entries.find(e=>same(e.classroom_id,source.classroom_id)&&same(e.slot_id,target.id));
+ const rest=state.entries.filter(e=>!same(e.id,source.id)&&(!destination||!same(e.id,destination.id)));
+ const moves=[{...source,slot_id:target.id,source:'manual',locked:1}];
+ if(destination)moves.push({...destination,slot_id:source.slot_id,source:'manual',locked:1});
+ for(const entry of moves){
+  const r=state.requirements.find(r=>same(r.id,entry.requirement_id)),slot=state.slots.find(s=>same(s.id,entry.slot_id));
+  if(!r||!slot)return {error:'ข้อมูลวิชาหรือคาบไม่ครบ',moves:[],source,destination};
+  const error=placementError(state,[...rest,...moves.filter(m=>m!==entry)],r,slot,free);
+  if(error)return {error:`${same(entry.id,source.id)?'คาบต้นทาง':'คาบปลายทาง'}: ${error}`,moves:[],source,destination};
+ }
+ return {error:null,moves,source,destination};
+}

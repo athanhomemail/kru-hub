@@ -50,3 +50,19 @@ test('Auto fills all subjects across five rooms, not only the first subjects',()
  for(const r of requirements)assert.equal(result.entries.filter(e=>e.requirement_id===r.id).length,5);
  for(const e of result.entries)assert.equal(placementError(state,result.entries.filter(other=>other!==e),requirements.find(r=>r.id===e.requirement_id),slots.find(s=>s.id===e.slot_id)),null);
 });
+test('swap preview checks teachers in both directions and never mutates its input',async()=>{
+ const {previewMove}=await import('../src/scheduler.js');const s=fixture();
+ s.entries=[{id:11,classroom_id:1,requirement_id:1,teacher_id:1,slot_id:1,source:'auto',locked:0},{id:12,classroom_id:1,requirement_id:2,teacher_id:2,slot_id:3,source:'auto',locked:0}];
+ const before=JSON.stringify(s);const result=previewMove(s,11,3);assert.equal(result.error,null);assert.equal(result.moves.length,2);assert.equal(result.moves[0].slot_id,3);assert.equal(result.moves[1].slot_id,1);assert.ok(result.moves.every(e=>e.source==='manual'&&e.locked===1));assert.equal(JSON.stringify(s),before);
+ s.entries.push({id:13,classroom_id:2,requirement_id:3,teacher_id:1,slot_id:3});assert.match(previewMove(s,11,3).error,/ต้นทาง.*ครูมีคาบ/);s.entries.pop();
+ s.entries.push({id:14,classroom_id:2,requirement_id:4,teacher_id:2,slot_id:1});assert.match(previewMove(s,11,3).error,/ปลายทาง.*ครูมีคาบ/);
+});
+test('swap preview validates availability, day caps, empty destinations and room slots',async()=>{
+ const {previewMove}=await import('../src/scheduler.js');const s=fixture();
+ s.entries=[{id:11,classroom_id:1,requirement_id:1,teacher_id:1,slot_id:1,source:'auto',locked:0},{id:12,classroom_id:1,requirement_id:2,teacher_id:2,slot_id:3,source:'auto',locked:0}];
+ assert.equal(previewMove(s,11,2).moves.length,1);
+ s.unavailable=[{teacher_id:2,slot_id:1}];assert.match(previewMove(s,11,3).error,/ปลายทาง.*ไม่ว่าง/);s.unavailable=[];
+ s.entries.push({id:13,classroom_id:1,requirement_id:1,teacher_id:1,slot_id:4});assert.match(previewMove(s,11,3).error,/ต่อวัน/);assert.equal(previewMove(s,11,3,true).error,null);s.entries.pop();
+ s.classroomSlots=s.classroomSlots.filter(c=>!(c.classroom_id===1&&c.slot_id===2));assert.match(previewMove(s,11,2).error,/ไม่มีคาบ/);
+ assert.ok(previewMove(s,11,1).error);assert.ok(previewMove(s,9999,1).error);
+});

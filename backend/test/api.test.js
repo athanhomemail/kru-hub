@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
 import {readFile} from 'node:fs/promises';
 import {pool} from '../src/db.js';
-import {placementError} from '../src/scheduler.js';
+import {placementError,previewMove} from '../src/scheduler.js';
 const enabled=process.env.RUN_API_TESTS==='1';
 const base=process.env.TEST_API_URL||'http://127.0.0.1:4001/api';
 let cookie='';
@@ -48,6 +48,12 @@ test('live account, tenant, manual/Auto, publish, export and document-sharing wo
   await request(`${url}/timetables/${versionId}/auto`,{revision:state.version.revision,room_ids:data.classrooms.map(r=>r.id)},'POST');
   state=(await request(`${url}/timetables/${versionId}`)).data;
   const entriesForRoom=state.entries.filter(e=>e.classroom_id===locked.classroom_id);
+  // A destination can be free for the source teacher yet clash for the teacher returning.
+  let invalidSwap;
+  for(const a of entriesForRoom){for(const b of entriesForRoom){if(a.id!==b.id&&previewMove(state,a.id,b.slot_id,true).error?.includes('ครูมีคาบ')){invalidSwap=[a,b];break;}}if(invalidSwap)break;}
+  assert.ok(invalidSwap,'A teacher-conflicting swap must exist in the shared-teacher fixture');
+  assert.equal((await request(`${url}/timetables/${versionId}/move`,{revision:state.version.revision,entry_id:invalidSwap[0].id,slot_id:invalidSwap[1].slot_id,free:true},'POST')).status,400);
+  const rejected=(await request(`${url}/timetables/${versionId}`)).data;assert.equal(rejected.version.revision,state.version.revision);assert.deepEqual(rejected.entries.map(e=>e.id),state.entries.map(e=>e.id));
   let candidate;
   for(const a of entriesForRoom){for(const b of entriesForRoom){if(a.id===b.id)continue;const rest=state.entries.filter(e=>e.id!==a.id&&e.id!==b.id);const reqA=state.requirements.find(r=>r.id===a.requirement_id),reqB=state.requirements.find(r=>r.id===b.requirement_id),slotA=state.slots.find(s=>s.id===a.slot_id),slotB=state.slots.find(s=>s.id===b.slot_id);if(!placementError(state,rest,reqA,slotB,true)&&!placementError(state,[...rest,{...a,slot_id:b.slot_id}],reqB,slotA,true)){candidate=[a,b];break;}}if(candidate)break;}
   assert.ok(candidate,'At least one legal swap');

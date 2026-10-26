@@ -4,7 +4,7 @@ import { pool } from './db.js';
 import { fail,id,transaction,audit } from './common.js';
 import { staffAccess } from './auth.js';
 import { canCoordinate,loadData } from './data.js';
-import { placementError,readiness } from './scheduler.js';
+import { placementError,readiness,previewMove } from './scheduler.js';
 export const timetableRoutes=Router({mergeParams:true});
 async function stateFor(req,c,versionId,lock=false){
  if(lock){const [[reference]]=await c.query('SELECT term_id FROM timetable_versions WHERE school_id=? AND id=?',[req.school.id,id(versionId)]);if(!reference)fail(404,'ไม่พบตาราง');await c.query('SELECT id FROM terms WHERE school_id=? AND id=? FOR UPDATE',[req.school.id,reference.term_id]);}
@@ -54,10 +54,8 @@ timetableRoutes.post('/timetables/:id/move',async(req,res)=>{
  const source=s.entries.find(e=>Number(e.id)===id(req.body.entry_id)),target=s.slots.find(slot=>Number(slot.id)===id(req.body.slot_id));if(!source||!target)fail(400,'ไม่พบคาบที่ต้องการย้าย');
  await canCoordinate(req,s.version.term_id,[source.classroom_id],c);
  if(Number(source.slot_id)===Number(target.id))return;
- const destination=s.entries.find(e=>Number(e.classroom_id)===Number(source.classroom_id)&&Number(e.slot_id)===Number(target.id));
- const remaining=s.entries.filter(e=>e.id!==source.id&&e.id!==destination?.id);
- const moves=[{...source,slot_id:target.id,source:'manual',locked:1}];if(destination)moves.push({...destination,slot_id:source.slot_id,source:'manual',locked:1});
- for(const entry of moves){const r=s.requirements.find(r=>Number(r.id)===Number(entry.requirement_id)),slot=s.slots.find(s=>Number(s.id)===Number(entry.slot_id));const error=placementError(s,remaining,r,slot,req.body.free===true);if(error)fail(400,error);remaining.push(entry);}
+ const preview=previewMove(s,source.id,target.id,req.body.free===true);if(preview.error)fail(400,preview.error);
+ const {destination,moves}=preview;
  await c.query('DELETE FROM timetable_entries WHERE school_id=? AND version_id=? AND id IN (?)',[req.school.id,s.version.id,[source.id,...(destination?[destination.id]:[])]]);
  for(const entry of moves)await insertEntry(c,req,s,entry);await changed(c,req,s,'move');
  });notify(req);res.json({ok:true});
