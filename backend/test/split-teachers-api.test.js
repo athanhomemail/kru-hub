@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
 import {pool} from '../src/db.js';
 test('API assigns 3+2 periods of one subject to two teachers and schedules each quota',{skip:process.env.RUN_API_TESTS!=='1'},async()=>{
- const base='http://127.0.0.1:4001/api';let cookie='',school,year,grade,room,term,subject,version;const teachers=[],requirements=[];
+ const base=process.env.TEST_API_URL||'http://127.0.0.1:4001/api';let cookie='',school,year,grade,room,term,subject,version;const teachers=[],requirements=[];
  const insert=async(sql,args)=>(await pool.query(sql,args))[0].insertId;
  async function call(path,body,method='GET'){const r=await fetch(base+path,{method,headers:{'X-KruHub':'1','Content-Type':'application/json',...(cookie?{Cookie:cookie}:{})},...(body===undefined?{}:{body:JSON.stringify(body)})});return {status:r.status,data:await r.json(),cookie:r.headers.get('set-cookie')?.split(';')[0]};}
  try{

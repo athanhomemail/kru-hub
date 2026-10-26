@@ -77,7 +77,7 @@ timetableRoutes.post('/timetables/:id/auto',async(req,res)=>{
  });
  await c.query("DELETE FROM timetable_entries WHERE school_id=? AND version_id=? AND classroom_id IN (?) AND source='auto' AND locked=FALSE",[req.school.id,s.version.id,rooms]);
  for(const entry of solved.entries.filter(e=>!e.id))await insertEntry(c,req,s,entry);
- await changed(c,req,s,'auto');return {complete:solved.complete,remaining:solved.remaining};
+ await changed(c,req,s,'auto');return {complete:solved.complete,remaining:solved.remaining,search:solved.search};
  });notify(req);res.json(result);
 });
 timetableRoutes.post('/timetables/:id/clear-auto',async(req,res)=>{

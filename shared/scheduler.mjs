@@ -1,3 +1,4 @@
+import {solveSchedule} from './constraint-solver.mjs';
 const same = (a,b) => Number(a)===Number(b);
 const seconds = value => String(value).split(':').reduce((total,n)=>total*60+Number(n),0) * (String(value).split(':').length===2?60:1);
 export function overlaps(a,b) { return same(a.weekday,b.weekday) && seconds(a.starts_at) < seconds(b.ends_at) && seconds(b.starts_at) < seconds(a.ends_at); }
@@ -34,28 +35,4 @@ export function readiness(state,roomIds) {
  if(!roomIds.length) problems.push('กรุณาเลือกห้องเรียน');
  return problems;
 }
-export function solve(state, roomIds, limitMs=1200) {
- const target=new Set(roomIds.map(Number));
- const fixed=state.entries.filter(e=>!target.has(Number(e.classroom_id))||e.source==='manual'||e.locked);
- const reqs=state.requirements.filter(r=>target.has(Number(r.classroom_id)));
- let best=[...fixed]; const end=Date.now()+limitMs;
- for(let attempt=0;attempt<150&&Date.now()<end;attempt++) {
-  const entries=[...fixed];
-  while(Date.now()<end){
-   const options=reqs.map(r=>{
-    const remaining=r.periods_per_week-entries.filter(e=>same(e.requirement_id,r.id)).length;
-    const candidates=remaining>0?state.slots.filter(s=>!placementError(state,entries,r,s)):[];
-    return {r,remaining,candidates,tie:Math.random()};
-   }).filter(o=>o.remaining>0&&o.candidates.length);
-   if(!options.length) break;
-   options.sort((a,b)=>a.candidates.length/a.remaining-b.candidates.length/b.remaining||a.tie-b.tie);
-   const {r,candidates}=options[0];
-   const slot=candidates[Math.floor(Math.random()*candidates.length)];
-   entries.push({classroom_id:r.classroom_id,requirement_id:r.id,teacher_id:r.teacher_id,slot_id:slot.id,source:'auto',locked:0});
-  }
-  if(entries.length>best.length) best=entries;
-  if(reqs.every(r=>best.filter(e=>same(e.requirement_id,r.id)).length===r.periods_per_week)) break;
- }
- const remaining=reqs.map(r=>({...r,remaining:r.periods_per_week-best.filter(e=>same(e.requirement_id,r.id)).length})).filter(r=>r.remaining>0);
- return {entries:best,remaining,complete:!remaining.length};
-}
+export function solve(state,roomIds,limitMs=6000){return solveSchedule(state,roomIds,limitMs);}

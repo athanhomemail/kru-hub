@@ -5,7 +5,7 @@ import {readFile} from 'node:fs/promises';
 import {pool} from '../src/db.js';
 import {placementError} from '../src/scheduler.js';
 const enabled=process.env.RUN_API_TESTS==='1';
-const base='http://127.0.0.1:4001/api';
+const base=process.env.TEST_API_URL||'http://127.0.0.1:4001/api';
 let cookie='';
 async function request(path,body,method='GET',sessionCookie=cookie){
  const headers={'X-KruHub':'1'};if(sessionCookie)headers.Cookie=sessionCookie;

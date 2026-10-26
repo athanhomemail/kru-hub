@@ -1,3 +1,4 @@
+import {solveSchedule} from '../../shared/constraint-solver.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {solve,placementError,readiness,overlaps} from '../src/scheduler.js';
@@ -26,4 +27,26 @@ test('one subject can split weekly quota across teachers while sharing its daily
  const result=solve(s,[1]);assert.equal(result.complete,true);assert.equal(result.entries.filter(e=>e.requirement_id===1).length,3);assert.equal(result.entries.filter(e=>e.requirement_id===2).length,2);assert.ok(result.entries.some(e=>e.id===101));
  for(const entry of result.entries)assert.equal(placementError(s,result.entries.filter(e=>e!==entry),s.requirements.find(r=>r.id===entry.requirement_id),s.slots.find(slot=>slot.id===entry.slot_id)),null);
  s.requirements[1].periods_per_week=3;s.requirements[2].periods_per_week=4;assert.ok(readiness(s,[1]).some(p=>p.includes('รวมครู')));
+});
+
+test('bounded backtracking completes a schedule without random retries',()=>{
+ const s=fixture();s.requirements=s.requirements.map((r,i)=>({...r,subject_id:i%2+1}));
+ s.entries=[{id:1001,classroom_id:1,requirement_id:1,teacher_id:1,slot_id:1,source:'manual',locked:1}];
+ const result=solveSchedule(s,[1,2],1000,{greedyAttempts:0});assert.equal(result.complete,true);assert.ok(result.search.nodes>0);
+ assert.deepEqual(result.entries.find(e=>e.id===1001),s.entries[0]);
+ for(const entry of result.entries)assert.equal(placementError(s,result.entries.filter(e=>e!==entry),s.requirements.find(r=>r.id===entry.requirement_id),s.slots.find(slot=>slot.id===entry.slot_id)),null);
+});
+test('Auto never discards a valid prior partial schedule when its search budget expires',()=>{
+ const s=fixture();s.entries=[{id:2001,classroom_id:1,requirement_id:1,teacher_id:1,slot_id:1,source:'auto',locked:0},{id:2002,classroom_id:2,requirement_id:4,teacher_id:2,slot_id:1,source:'manual',locked:1}];
+ const result=solve(s,[1],0);assert.ok(result.entries.some(e=>e.requirement_id===1&&e.slot_id===1));assert.deepEqual(result.entries.find(e=>e.id===2002),s.entries[1]);
+ assert.ok(result.entries.filter(e=>e.source==='auto').every(e=>!e.id));
+});
+test('Auto fills all subjects across five rooms, not only the first subjects',()=>{
+ const slots=[];for(let day=1;day<=5;day++)for(let period=1;period<=5;period++)slots.push({id:slots.length+1,weekday:day,period_number:period,starts_at:`${7+period}:00`,ends_at:`${8+period}:00`});
+ const classrooms=Array.from({length:5},(_,i)=>({id:i+1,name:`room-${i+1}`}));
+ const requirements=classrooms.flatMap(room=>Array.from({length:5},(_,i)=>({id:(room.id-1)*5+i+1,classroom_id:room.id,subject_id:i+1,teacher_id:i+1,subject_name:`subject-${i+1}`,periods_per_week:5,daily_limit:1})));
+ const state={slots,classrooms,requirements,classroomSlots:classrooms.flatMap(c=>slots.map(s=>({classroom_id:c.id,slot_id:s.id}))),entries:[],unavailable:[]};
+ const result=solve(state,classrooms.map(c=>c.id),3000);assert.equal(result.complete,true);assert.equal(result.entries.length,125);
+ for(const r of requirements)assert.equal(result.entries.filter(e=>e.requirement_id===r.id).length,5);
+ for(const e of result.entries)assert.equal(placementError(state,result.entries.filter(other=>other!==e),requirements.find(r=>r.id===e.requirement_id),slots.find(s=>s.id===e.slot_id)),null);
 });

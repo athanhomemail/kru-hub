@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
 import {pool} from '../src/db.js';
 test('school setup API creates numbered rooms and bulk slots without overwriting existing data',{skip:process.env.RUN_API_TESTS!=='1'},async()=>{
- const base='http://127.0.0.1:4001/api';let cookie='',school,year,term,grade,room;
+ const base=process.env.TEST_API_URL||'http://127.0.0.1:4001/api';let cookie='',school,year,term,grade,room;
  async function call(path,body,method='GET'){const r=await fetch(base+path,{method,headers:{'X-KruHub':'1','Content-Type':'application/json',...(cookie?{Cookie:cookie}:{})},...(body===undefined?{}:{body:JSON.stringify(body)})});return {status:r.status,data:await r.json(),cookie:r.headers.get('set-cookie')?.split(';')[0]};}
  try{
  const login=await call('/auth/demo',{},'POST');assert.equal(login.status,200);cookie=login.cookie;
