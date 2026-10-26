@@ -4,7 +4,7 @@ import { pool } from './db.js';
 import { fail,id,transaction,audit } from './common.js';
 import { staffAccess } from './auth.js';
 import { canCoordinate,loadData } from './data.js';
-import { placementError,readiness,previewMove } from './scheduler.js';
+import { placementError,readiness,previewMove,isLockedEntry } from './scheduler.js';
 export const timetableRoutes=Router({mergeParams:true});
 async function stateFor(req,c,versionId,lock=false){
  if(lock){const [[reference]]=await c.query('SELECT term_id FROM timetable_versions WHERE school_id=? AND id=?',[req.school.id,id(versionId)]);if(!reference)fail(404,'ไม่พบตาราง');await c.query('SELECT id FROM terms WHERE school_id=? AND id=? FOR UPDATE',[req.school.id,reference.term_id]);}
@@ -61,7 +61,7 @@ timetableRoutes.post('/timetables/:id/move',async(req,res)=>{
  });notify(req);res.json({ok:true});
 });
 timetableRoutes.delete('/timetables/:id/entries/:entryId',async(req,res)=>{
- await transaction(async c=>{const s=await stateFor(req,c,req.params.id,true);draft(req,s);const entry=s.entries.find(e=>Number(e.id)===id(req.params.entryId));if(!entry)fail(404,'ไม่พบคาบ');await canCoordinate(req,s.version.term_id,[entry.classroom_id],c);await c.query('DELETE FROM timetable_entries WHERE school_id=? AND id=?',[req.school.id,entry.id]);await changed(c,req,s,'remove');});notify(req);res.json({ok:true});
+ await transaction(async c=>{const s=await stateFor(req,c,req.params.id,true);draft(req,s);const entry=s.entries.find(e=>Number(e.id)===id(req.params.entryId));if(!entry)fail(404,'ไม่พบคาบ');if(isLockedEntry(entry))fail(400,'คาบนี้ถูกล็อก ห้ามลบหรือเปลี่ยนตำแหน่ง');await canCoordinate(req,s.version.term_id,[entry.classroom_id],c);await c.query('DELETE FROM timetable_entries WHERE school_id=? AND id=?',[req.school.id,entry.id]);await changed(c,req,s,'remove');});notify(req);res.json({ok:true});
 });
 timetableRoutes.post('/timetables/:id/auto',async(req,res)=>{
  const result=await transaction(async c=>{

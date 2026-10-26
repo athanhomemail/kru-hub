@@ -36,6 +36,9 @@ test('live account, tenant, manual/Auto, publish, export and document-sharing wo
   assert.equal((await request(`${url}/timetables/${versionId}/placement`,{revision:0,requirement_id:req.id,slot_id:slot.id},'POST')).status,409);
   state=(await request(`${url}/timetables/${versionId}`)).data;
   const locked=state.entries[0];
+  assert.equal((await request(`${url}/timetables/${versionId}/move`,{revision:state.version.revision,entry_id:locked.id,slot_id:state.slots.find(s=>s.id!==locked.slot_id).id,free:true},'POST')).status,400);
+  assert.equal((await request(`${url}/timetables/${versionId}/entries/${locked.id}`,{revision:state.version.revision},'DELETE')).status,400);
+
   assert.equal((await request(`${url}/timetables/${versionId}/bulk-placement`,{revision:state.version.revision,room_ids:data.classrooms.map(r=>r.id),subject_id:req.subject_id,slot_id:slot.id},'POST')).status,400);
   assert.equal((await request(`${url}/timetables/${versionId}`)).data.entries.length,1);
   const auto=await request(`${url}/timetables/${versionId}/auto`,{revision:state.version.revision,room_ids:data.classrooms.map(r=>r.id)},'POST');assert.equal(auto.status,200);assert.equal(auto.data.complete,true);
@@ -55,8 +58,10 @@ test('live account, tenant, manual/Auto, publish, export and document-sharing wo
   assert.equal((await request(`${url}/timetables/${versionId}/move`,{revision:state.version.revision,entry_id:invalidSwap[0].id,slot_id:invalidSwap[1].slot_id,free:true},'POST')).status,400);
   const rejected=(await request(`${url}/timetables/${versionId}`)).data;assert.equal(rejected.version.revision,state.version.revision);assert.deepEqual(rejected.entries.map(e=>e.id),state.entries.map(e=>e.id));
   let candidate;
-  for(const a of entriesForRoom){for(const b of entriesForRoom){if(a.id===b.id)continue;const rest=state.entries.filter(e=>e.id!==a.id&&e.id!==b.id);const reqA=state.requirements.find(r=>r.id===a.requirement_id),reqB=state.requirements.find(r=>r.id===b.requirement_id),slotA=state.slots.find(s=>s.id===a.slot_id),slotB=state.slots.find(s=>s.id===b.slot_id);if(!placementError(state,rest,reqA,slotB,true)&&!placementError(state,[...rest,{...a,slot_id:b.slot_id}],reqB,slotA,true)){candidate=[a,b];break;}}if(candidate)break;}
+  for(const a of entriesForRoom){for(const b of entriesForRoom){if(a.id===b.id)continue;const rest=state.entries.filter(e=>e.id!==a.id&&e.id!==b.id);const reqA=state.requirements.find(r=>r.id===a.requirement_id),reqB=state.requirements.find(r=>r.id===b.requirement_id),slotA=state.slots.find(s=>s.id===a.slot_id),slotB=state.slots.find(s=>s.id===b.slot_id);if(!previewMove(state,a.id,b.slot_id,true).error){candidate=[a,b];break;}}if(candidate)break;}
   assert.ok(candidate,'At least one legal swap');
+  assert.equal((await request(`${url}/timetables/${versionId}/move`,{revision:state.version.revision,entry_id:candidate[0].id,slot_id:locked.slot_id,free:true},'POST')).status,400);
+
   assert.equal((await request(`${url}/timetables/${versionId}/move`,{revision:state.version.revision,entry_id:candidate[0].id,slot_id:candidate[1].slot_id,free:true},'POST')).status,200);
   state=(await request(`${url}/timetables/${versionId}`)).data;
   assert.equal((await request(`${url}/timetables/${versionId}/publish`,{revision:state.version.revision},'POST')).status,200);

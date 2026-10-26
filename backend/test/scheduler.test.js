@@ -66,3 +66,9 @@ test('swap preview validates availability, day caps, empty destinations and room
  s.classroomSlots=s.classroomSlots.filter(c=>!(c.classroom_id===1&&c.slot_id===2));assert.match(previewMove(s,11,2).error,/ไม่มีคาบ/);
  assert.ok(previewMove(s,11,1).error);assert.ok(previewMove(s,9999,1).error);
 });
+test('locked lessons are immutable sources and destinations, even in free mode',async()=>{
+ const {previewMove}=await import('../src/scheduler.js');const s=fixture();
+ s.entries=[{id:11,classroom_id:1,requirement_id:1,teacher_id:1,slot_id:1,source:'manual',locked:1},{id:12,classroom_id:1,requirement_id:2,teacher_id:2,slot_id:3,source:'auto',locked:0}];
+ const before=JSON.stringify(s);assert.match(previewMove(s,11,3,true).error,/ต้นทางถูกล็อก/);assert.match(previewMove(s,12,1,true).error,/ปลายทางถูกล็อก/);assert.equal(JSON.stringify(s),before);
+ s.entries[0].source='auto';assert.match(previewMove(s,11,3).error,/ถูกล็อก/);
+});
